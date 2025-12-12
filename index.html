@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>2025 跨年親子遊 | New Year Trip</title>
+    
+    <!-- 引入 React 與 Tailwind -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- EmailJS SDK -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+
+    <!-- Leaflet Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #0B1121; /* Deep Night Blue */
+            color: #E2E8F0; 
+            /* Fireworks / Starry background effect */
+            background-image: 
+                radial-gradient(circle at 50% 10%, rgba(255, 207, 86, 0.15) 0%, transparent 20%),
+                radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 3px),
+                radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 2px);
+            background-size: 100% 100%, 550px 550px, 350px 350px;
+            background-position: 0 0, 0 0, 40px 60px;
+            background-attachment: fixed;
+        }
+        
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Leaflet Dark Mode Filter */
+        .leaflet-layer, .leaflet-control-zoom-in, .leaflet-control-zoom-out, .leaflet-control-attribution {
+            filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+        }
+        
+        /* Loading Animation */
+        .typing-indicator span { animation: blink 1.4s infinite both; }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes blink { 0% { opacity: 0.2; } 20% { opacity: 1; } 100% { opacity: 0.2; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+        // --- Gemini API Helper ---
+        const generateGeminiContent = async (prompt, imageBase64 = null) => {
+            const defaultKey = ""; 
+            let storedKey = localStorage.getItem('gemini_api_key');
+            let apiKey = storedKey ? storedKey.trim() : defaultKey.trim();
+            
+            if (!apiKey) throw new Error("NO_API_KEY");
+
+            const model = 'gemini-2.5-flash-preview-09-2025';
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+            
+            const parts = [{ text: prompt }];
+            if (imageBase64) {
+                const base64Data = imageBase64.split(',')[1] || imageBase64;
+                parts.push({
+                    inlineData: {
+                        mimeType: "image/jpeg",
+                        data: base64Data
+                    }
+                });
+            }
+
+            const payload = { contents: [{ parts: parts }] };
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    if (response.status === 403 && errData.error?.message?.includes('leaked')) {
+                        localStorage.removeItem('gemini_api_key'); 
+                        throw new Error("API Key 已失效 (Key外洩)。請申請新 Key。");
+                    }
+                    if (response.status === 400 && errData.error?.message?.includes('API key not valid')) {
+                        localStorage.removeItem('gemini_api_key');
+                        throw new Error("API Key 無效。請檢查設定。");
+                    }
+                    throw new Error(errData.error?.message || `HTTP Error: ${response.status}`);
+                }
+                const data = await response.json();
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "抱歉，AI 暫時無法回應。";
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                throw error;
+            }
+        };
+
+        // --- Icons ---
+        const Icons = {
+            Plane: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M2 12h5"/><path d="M13 12h3"/><path d="M19.74 7.33a2.3 2.3 0 0 1 2.93 2.93l-3.33 3.33a2.3 2.3 0 0 1-3.25 0l-7.34-7.34a2.3 2.3 0 0 1 0-3.25l3.33-3.33z"/><path d="M14.66 14.66 9 22H2l2.5-9"/><path d="M7 17l-5 5"/></svg>,
+            Smile: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg>,
+            List: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>,
+            LayoutGrid: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>,
+            Calculator: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>,
+            Wallet: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg>,
+            MapPin: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>,
+            Ticket: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>,
+            ExternalLink: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>,
+            Footprints: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 11 3.8 11 8c0 1.25-.38 2-1.28 2.55-.4.25-.72.82-.72 1.25V16a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 2 13 3.8 13 8c0 1.25.38 2 1.28 2.55.4.25.72.82.72 1.25V16a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2z"/></svg>,
+            Car: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H7.7c-.7 0-1.3.3-1.8.7-.9.9-2.2 2.3-2.2 2.3S1 10.6 1 11.1c-.8.2-1.5 1-1.5 1.9v3c0 .6.4 1 1 1h2"/><path d="M2.5 17a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Z"/><path d="M16.5 17a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Z"/><path d="M12 9V6"/></svg>,
+            Navigation: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>,
+            Hotel: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M18 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Z"/><polyline points="7 2 7 20"/><polyline points="17 2 17 20"/><line x1="2" x2="22" y1="12" y2="12"/><line x1="2" x2="22" y1="17" y2="17"/></svg>,
+            Star: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+            X: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+            Coffee: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M10 2v2"/><path d="M14 2v2"/><path d="M6 2v2"/><path d="M18 8a1 1 0 0 1 1 1v2a3 3 0 0 1-3 3h-2.95a1 1 0 0 0-.768.369l-.254.332a4 4 0 0 1-3.26 1.623 4 4 0 0 1-3.296-1.402l-.125-.153A1 1 0 0 0 4.35 14H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h14z"/><path d="M18 14v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-1"/></svg>,
+            ShoppingBag: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
+            Fuel: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="3" x2="15" y1="22" y2="22"/><line x1="4" x2="14" y1="9" y2="9"/><path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18"/><path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5"/></svg>,
+            Sun: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>,
+            CloudSnow: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M8 15h.01"/><path d="M8 19h.01"/><path d="M12 17h.01"/><path d="M12 21h.01"/><path d="M16 15h.01"/><path d="M16 19h.01"/></svg>,
+            CloudRain: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M16 14v6"/><path d="M8 14v6"/><path d="M12 16v6"/></svg>,
+            Cloud: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M17.5 19c0-1.7-1.3-3-3-3h-1.1c-.2-3.4-3.1-6-6.5-6-3.7 0-6.6 2.8-6.9 6.4h-.1C2.1 16.4 0 18.5 0 21c0 2.2 1.8 4 4 4h13.5c2.2 0 4-1.8 4-4"/></svg>,
+            Sparkles: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M9 3v4"/><path d="M3 5h4"/><path d="M3 9h4"/></svg>,
+            Bot: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>,
+            Settings: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>,
+            ArrowDown: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>,
+            Map: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21 3 6"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/></svg>,
+            Search: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>,
+            Gift: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.9 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg>,
+            Store: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2v0a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12v0a2 2 0 0 1-2-2V7"/></svg>,
+            Utensils: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>,
+            LocateFixed: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg>,
+            Loader2: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>,
+            AlertTriangle: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>,
+            Check: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polyline points="20 6 9 17 4 12"/></svg>,
+            Navigation2: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg>,
+            Camera: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>,
+            ShoppingBasket: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m5 11 4-7"/><path d="m19 11-4-7"/><path d="M2 11h20"/><path d="m3.5 11 1.6 7.4a2 2 0 0 0 2 1.6h9.8c.9 0 1.8-.7 2-1.6l1.7-7.4"/><path d="m9 11 1 9"/><path d="m4.5 11 .1 8.1"/><path d="m19.5 11-.1 8.1"/><path d="m15 11-1 9"/></svg>,
+            Image: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>,
+            Newspaper: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></svg>,
+            Mail: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>,
+            UsersViewfinder: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="10" cy="10" r="7" /><path d="M21 21l-6-6" /><path d="M7 10h6" /><path d="M10 7v6" /></svg>,
+            MapLocation: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>,
+            Info: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>,
+            ArrowRightLeft: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>
+        };
+
+        const WeatherIcon = ({ type }) => {
+            switch (type) {
+                case 'sunny': return <Icons.Sun className="w-5 h-5 text-amber-500" />;
+                case 'snowy': return <Icons.CloudSnow className="w-5 h-5 text-slate-400" />;
+                case 'rainy': return <Icons.CloudRain className="w-5 h-5 text-blue-400" />;
+                case 'cloudy': return <Icons.Cloud className="w-5 h-5 text-stone-400" />;
+                default: return <Icons.CloudSnow className="w-5 h-5 text-stone-300" />;
+            }
+        };
+
+        function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+            var R = 6371; var dLat = deg2rad(lat2-lat1); var dLon = deg2rad(lon2-lon1);
+            var a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); var d = R * c;
+            return d.toFixed(1);
+        }
+        function deg2rad(deg) { return deg * (Math.PI/180) }
+
+        const timeToMinutes = (timeStr) => {
+            if (!timeStr) return 0;
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            return hours * 60 + minutes;
+        };
+
+        const minutesToTimeStr = (minutes) => {
+            let h = Math.floor(minutes / 60);
+            let m = Math.floor(minutes % 60);
+             h = h % 24; 
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+        };
+
+        const parseStayDuration = (stayStr) => {
+             if (!stayStr || stayStr === '-') return 0;
+             if (stayStr === 'Overnight') return 0;
+             if (stayStr.includes('hr')) {
+                 return parseFloat(stayStr) * 60;
+             }
+             if (stayStr.includes('min')) {
+                 return parseInt(stayStr);
+             }
+             return 0;
+        };
+
+        // --- NEW Data from KML ---
+        const RAW_KML_DATA = [
+            { 
+                dayId: "day1", 
+                date: "12/31 (二)", 
+                title: "跨年歡樂出發", 
+                themeColor: "bg-[#FFCF56]", 
+                spots: [ 
+                    { name: "溫暖的家", lat: 25.0665561, lon: 121.5105023, desc: "旅程起點，準備出發跨年！", mapCode: "GPS" }, 
+                    { name: "統一渡假村馬武督渡假會議中心", lat: 24.7671155, lon: 121.2177233, desc: "OPEN OPEN！入住歡樂渡假村，準備迎接 2025。", mapCode: "GPS" } 
+                ] 
+            },
+            { 
+                dayId: "day2", 
+                date: "01/01 (三)", 
+                title: "元旦歷史人文之旅", 
+                themeColor: "bg-[#90BE6D]", 
+                spots: [ 
+                    { name: "統一渡假村馬武督渡假會議中心", lat: 24.7671155, lon: 121.2177233, desc: "享受渡假村設施，元旦早晨。", mapCode: "GPS" }, 
+                    { name: "1895乙未保台紀念公園", lat: 24.948274, lon: 121.2054549, desc: "感受歷史建築之美與公園綠意。", mapCode: "GPS" } 
+                ] 
+            }
+        ];
+
+        // Constants
+        const REGION_DATA = {
+          "hsinchu": { 
+            label: "新竹/關西", 
+            lat: 24.7671, lon: 121.2177,
+            souvenirs: [
+              { name: "關西仙草", desc: "在地特色名產" },
+              { name: "新竹米粉", desc: "傳統古早味" },
+              { name: "福源花生醬", desc: "濃郁香醇" }
+            ],
+            color: "text-[#FFCF56]"
+          }
+        };
+
+        const NAV_BUTTONS_NEW = [
+            { title: "附近的平價美食", query: "平價美食", icon: Icons.Utensils },
+            { title: "附近便利商店", query: "便利商店", icon: Icons.Store },
+            { title: "附近的咖啡", query: "咖啡廳", icon: Icons.Coffee },
+            { title: "附近的加油站", query: "加油站", icon: Icons.Fuel },
+            { title: "附近的全聯", query: "全聯福利中心", icon: Icons.ShoppingBasket }
+        ];
+
+        const FLIGHT_INFO = {
+            outbound: { flight: "Drive", airline: "自駕前往", from: "台北", to: "新竹", dep: "09:00", arr: "10:30", date: "12/31 (二)", duration: "1h 30m" },
+            inbound: { flight: "Drive", airline: "自駕返程", from: "平鎮", to: "台北", dep: "15:00", arr: "16:30", date: "01/01 (三)", duration: "1h 30m" }
+        };
+        const HOTEL_INFO = [
+            { day: "12/31", name: "統一渡假村馬武督", location: "新竹關西", desc: "親子度假飯店", link: "https://www.google.com/maps/search/?api=1&query=統一渡假村馬武督渡假會議中心", lat: 24.7671155, lon: 121.2177233 }
+        ];
+        
+        const RENTAL_INFO_LIST = [
+            { label: "車輛", value: "自家車" },
+            { label: "駕駛", value: "爸爸" },
+            { label: "導航", value: "Google Maps" },
+            { label: "ETC", value: "已確認餘額" },
+            { label: "保險", value: "強制險/第三人" },
+            { label: "備註", value: "檢查五油三水與胎壓" }
+        ];
+        
+        const EXCHANGE_RATE = 1.0; 
+        const STAY_OPTIONS = ["30 min", "1 hr", "1.5 hr", "2 hr", "2.5 hr", "3 hr", "4 hr", "5 hr", "Overnight", "-"];
+        const FAMILY_MEMBERS = ["蔣翊齊", "蔣宥昇", "陳榮芳", "蔣宗恆"];
+
+        // ... (Modal Components remain same, mostly logic) ...
+        const DailyDetailModal = ({ isOpen, onClose, dayData, allExpenses, spotTicketCounts }) => {
+            if (!isOpen || !dayData) return null;
+            const dayExpensesList = [];
+            dayData.spots.forEach(spot => {
+                const spotExpenses = allExpenses[spot.id] || [];
+                spotExpenses.forEach(record => {
+                    const dateMatch = record.note ? record.note.match(/^(\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2})\s+(.*)$/) : null;
+                    dayExpensesList.push({
+                        type: 'manual', spotName: spot.name, category: record.category, amount: record.amount,
+                        note: dateMatch ? dateMatch[2] : (record.note || "消費"),
+                        date: dateMatch ? dateMatch[1] : null, id: record.id
+                    });
+                });
+                if (spot.ticket) {
+                    const counts = spotTicketCounts[spot.id] || { adult: 2, child: 2 };
+                    const ticketCost = (spot.ticket.adult * counts.adult + spot.ticket.child * counts.child);
+                    if (ticketCost > 0) {
+                        dayExpensesList.push({
+                            type: 'ticket', spotName: spot.name, category: 'ticket', amount: ticketCost,
+                            note: `門票 (大${counts.adult} 小${counts.child})`, id: `ticket-${spot.id}`
+                        });
+                    }
+                }
+            });
+
+            return (
+                <div className="fixed inset-0 bg-stone-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4 animate-in fade-in duration-200" onClick={onClose}>
+                    <div className="glass-panel rounded-2xl p-6 w-full max-w-sm shadow-2xl max-h-[70vh] flex flex-col bg-[#0f172a] border border-slate-700" onClick={e => e.stopPropagation()}>
+                         <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
+                            <div><div className="text-xs font-bold text-slate-400 mb-1">{dayData.date}</div><h3 className="font-black text-xl text-slate-200">{dayData.title}</h3></div>
+                            <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-700 text-slate-400 transition-colors"><Icons.X size={20}/></button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                            {dayExpensesList.length === 0 ? (
+                                <div className="text-center text-slate-500 py-8 flex flex-col items-center"><Icons.Wallet size={32} className="mb-2 opacity-50"/><span>本日尚無花費紀錄</span></div>
+                            ) : (
+                                dayExpensesList.map((item, idx) => (
+                                    <div key={item.id || idx} className="bg-[#1e293b] p-3 rounded-xl border border-slate-700 flex justify-between items-center">
+                                        <div><div className="text-xs text-[#FFCB77] font-bold mb-0.5">{item.spotName}</div><div className="flex flex-col">{item.date && <span className="text-[10px] text-slate-500 block">{item.date}</span>}<span className="text-sm font-bold text-slate-300">{item.note}</span></div></div>
+                                        <div className="font-mono font-bold text-slate-200 text-lg">NT${item.amount.toLocaleString()}</div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-700 flex justify-between items-center">
+                            <span className="text-sm font-bold text-slate-400 uppercase tracking-wider">Total</span><span className="text-2xl font-mono font-black text-[#FF6B6B]">NT${dayData.totalJpy.toLocaleString()}</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ApiKeyModal = ({ isOpen, onClose }) => {
+            const [key, setKey] = useState('');
+            useEffect(() => { const storedKey = localStorage.getItem('gemini_api_key'); if (storedKey) setKey(storedKey); }, [isOpen]);
+            const handleSave = () => { localStorage.setItem('gemini_api_key', key.trim()); onClose(); };
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-stone-800/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4 animate-in fade-in duration-200">
+                    <div className="glass-panel rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                        <div className="flex justify-between items-center mb-2"><h3 className="font-bold text-lg text-slate-200 flex items-center gap-2"><Icons.Settings size={20} /> 設定 AI 金鑰</h3><button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-700/50 transition-colors"><Icons.X size={20} /></button></div>
+                        <p className="text-xs text-slate-400 mb-4">內建金鑰已啟用！若您有自己的 Key 可在此更換。</p>
+                        <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="貼上 API Key (選填)" className="w-full bg-slate-700 rounded-lg p-3 text-sm mb-4 outline-none focus:ring-2 focus:ring-[#4ECDC4] text-white"/>
+                        <div className="flex gap-2"><a href="https://aistudio.google.com/app/apikey" target="_blank" className="flex-1 text-center py-2 rounded-lg border border-slate-600 text-xs font-bold text-slate-400 hover:bg-slate-700">取得 Key</a><button onClick={handleSave} className="flex-1 bg-[#4ECDC4] text-white py-2 rounded-lg text-sm font-bold hover:bg-[#3dbdb4]">儲存</button></div>
+                    </div>
+                </div>
+            );
+        };
+
+        function App() {
+            const [activeTab, setActiveTab] = useState('itinerary'); 
+            const [selectedDay, setSelectedDay] = useState('all'); 
+            
+            const [userLocation, setUserLocation] = useState(null);
+            const [isLocating, setIsLocating] = useState(false);
+            const [locationError, setLocationError] = useState(null);
+            const [infoRegion, setInfoRegion] = useState("hsinchu");
+            const [aiSouvenirs, setAiSouvenirs] = useState(null);
+            const [isAiSouvenirLoading, setIsAiSouvenirLoading] = useState(false);
+            const [aiNews, setAiNews] = useState(null);
+            const [isAiNewsLoading, setIsAiNewsLoading] = useState(false);
+            
+            const [spotTicketCounts, setSpotTicketCounts] = useState(() => { const saved = localStorage.getItem('2025_ny_trip_tickets'); return saved ? JSON.parse(saved) : {}; });
+            useEffect(() => { localStorage.setItem('2025_ny_trip_tickets', JSON.stringify(spotTicketCounts)); }, [spotTicketCounts]);
+            const getTicketCounts = (spotId) => spotTicketCounts[spotId] || { adult: 2, child: 2 };
+            const updateSpotTicketCount = (spotId, type, delta) => { setSpotTicketCounts(prev => { const current = prev[spotId] || { adult: 2, child: 2 }; const newValue = Math.max(0, current[type] + delta); return { ...prev, [spotId]: { ...current, [type]: newValue } }; }); };
+
+            const [expenses, setExpenses] = useState({});
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+            const [currentEditingSpot, setCurrentEditingSpot] = useState(null);
+            const [expenseForm, setExpenseForm] = useState({ category: 'food', amount: '', note: '' });
+            const [isAnalyzingReceipt, setIsAnalyzingReceipt] = useState(false);
+            const [pendingReceipts, setPendingReceipts] = useState([]);
+            const [quotaStatus, setQuotaStatus] = useState({ type: 'normal', text: 'API 額度正常' });
+            const [transportModes, setTransportModes] = useState({});
+            const [calcInput, setCalcInput] = useState("");
+            const [calcResult, setCalcResult] = useState("");
+            const [photoSearchLocation, setPhotoSearchLocation] = useState("");
+            const [photoSearchPeople, setPhotoSearchPeople] = useState([]);
+            const [photoSearchStatus, setPhotoSearchStatus] = useState({ text: "請輸入地點或點擊定位", type: "normal" });
+            const mapContainerRef = useRef(null);
+            const mapInstanceRef = useRef(null);
+            const markerInstanceRef = useRef(null);
+            const [activeTipSpotId, setActiveTipSpotId] = useState(null);
+            const [aiTips, setAiTips] = useState({});
+            const [isTipLoading, setIsTipLoading] = useState(false);
+            const [dayStartTimes, setDayStartTimes] = useState(() => { const initial = {}; RAW_KML_DATA.forEach(day => initial[day.dayId] = "09:00"); const saved = localStorage.getItem('2025_ny_trip_start'); return saved ? JSON.parse(saved) : initial; });
+            const [actualDepartures, setActualDepartures] = useState(() => { const saved = localStorage.getItem('2025_ny_trip_deps'); return saved ? JSON.parse(saved) : {}; });
+            const [stays, setStays] = useState(() => { const saved = localStorage.getItem('2025_ny_trip_stays'); return saved ? JSON.parse(saved) : {}; });
+            const [tripData, setTripData] = useState([]); 
+            const [isDailyDetailOpen, setIsDailyDetailOpen] = useState(false);
+            const [selectedDailyStats, setSelectedDailyStats] = useState(null);
+            const fileInputRef = useRef(null);
+            const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+            const [emailInput, setEmailInput] = useState("");
+            const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+            useEffect(() => { const saved = localStorage.getItem('2025_ny_trip_exp'); if (saved) { try { const parsed = JSON.parse(saved); if (parsed && typeof parsed === 'object') { setExpenses(parsed); } } catch(e) {} } }, []);
+            useEffect(() => { localStorage.setItem('2025_ny_trip_exp', JSON.stringify(expenses)); }, [expenses]);
+            useEffect(() => { localStorage.setItem('2025_ny_trip_start', JSON.stringify(dayStartTimes)); }, [dayStartTimes]);
+            useEffect(() => { localStorage.setItem('2025_ny_trip_deps', JSON.stringify(actualDepartures)); }, [actualDepartures]);
+            useEffect(() => { localStorage.setItem('2025_ny_trip_stays', JSON.stringify(stays)); }, [stays]);
+            useEffect(() => { if (window.emailjs) { window.emailjs.init("mYOFMMnqLdDxR0wjj"); } }, []);
+            useEffect(() => { if (activeTab === 'stats' && mapContainerRef.current) { if (!mapInstanceRef.current) { mapInstanceRef.current = L.map(mapContainerRef.current).setView([24.7671, 121.2177], 9); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OSM', maxZoom: 19 }).addTo(mapInstanceRef.current); } setTimeout(() => { mapInstanceRef.current.invalidateSize(); }, 100); } }, [activeTab]);
+
+             useEffect(() => {
+                setTripData(prevData => {
+                     return RAW_KML_DATA.map(day => {
+                        const startTimeStr = dayStartTimes[day.dayId] || "09:00";
+                        let currentMinutes = timeToMinutes(startTimeStr);
+                        const processedSpots = day.spots.map((rawSpot, index) => {
+                            const spotId = `${day.dayId}-s${index}`;
+                            const stayStr = stays[spotId] || "1.5 hr";
+                            const stayMinutes = parseStayDuration(stayStr);
+                            const arrivalTimeStr = minutesToTimeStr(currentMinutes);
+                            let departureMinutes;
+                            let isDeparted = false;
+                            let actualDepTime = null;
+                            if (actualDepartures[spotId]) {
+                                actualDepTime = actualDepartures[spotId];
+                                departureMinutes = timeToMinutes(actualDepTime);
+                                isDeparted = true;
+                            } else {
+                                departureMinutes = currentMinutes + stayMinutes;
+                            }
+                            const departureTimeStr = minutesToTimeStr(departureMinutes);
+                            let nextStopInfo = null;
+                            let travelMinutes = 0;
+                            if (index < day.spots.length - 1) {
+                                const nextSpot = day.spots[index + 1];
+                                const dist = getDistanceFromLatLonInKm(rawSpot.lat, rawSpot.lon, nextSpot.lat, nextSpot.lon);
+                                const mode = transportModes[spotId] || 'car';
+                                const speed = mode === 'car' ? 40 : 4; 
+                                travelMinutes = Math.round((dist / speed) * 60);
+                                const displayDriveMins = Math.round((dist / 40) * 60); 
+                                const displayWalkMins = Math.round((dist / 4) * 60);
+                                nextStopInfo = {
+                                    name: nextSpot.name, distance: `${dist} km`,
+                                    driveTime: displayDriveMins > 60 ? `${Math.floor(displayDriveMins/60)}hr ${displayDriveMins%60}m` : `${displayDriveMins}m`,
+                                    walkTime: displayWalkMins > 60 ? `${Math.floor(displayWalkMins/60)}hr ${displayWalkMins%60}m` : `${displayWalkMins}m`,
+                                    navLink: `https://www.google.com/maps/dir/?api=1&origin=${rawSpot.lat},${rawSpot.lon}&destination=${nextSpot.lat},${nextSpot.lon}&travelmode=driving`
+                                };
+                            }
+                            currentMinutes = departureMinutes + travelMinutes;
+                            return { ...rawSpot, id: spotId, time: arrivalTimeStr, stay: stayStr, departureTime: departureTimeStr, isDeparted: isDeparted, actualDepTime: actualDepTime, mapcodeDisplay: rawSpot.mapCode || "GPS", weather: ["sunny", "cloudy"][Math.floor(Math.random()*2)], temp: "16°C", gmapLink: `https://www.google.com/maps/search/?api=1&query=${rawSpot.lat},${rawSpot.lon}`, nextStop: nextStopInfo, ticket: rawSpot.ticket || null };
+                        });
+                        return { ...day, spots: processedSpots };
+                    });
+                });
+            }, [dayStartTimes, actualDepartures, transportModes, stays]);
+
+            const handleTransportToggle = (spotId) => { setTransportModes(prev => ({ ...prev, [spotId]: prev[spotId] === 'walk' ? 'car' : 'walk' })); };
+            const handleStayChangeNew = (spotId, newStay) => { setStays(prev => ({ ...prev, [spotId]: newStay })); };
+            const handleDayStartTimeChange = (dayId, newTime) => { setDayStartTimes(prev => ({ ...prev, [dayId]: newTime })); };
+            const handleDepartureToggle = (spotId) => { setActualDepartures(prev => { const newState = { ...prev }; if (newState[spotId]) { delete newState[spotId]; } else { const now = new Date(); const timeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`; newState[spotId] = timeStr; } return newState; }); };
+
+            const fetchAiSouvenirs = async (lat, lon) => {
+                setIsAiSouvenirLoading(true); setAiSouvenirs(null);
+                try {
+                    const prompt = `我現在在台灣的座標: 緯度 ${lat}, 經度 ${lon}。請推薦 3 個這個地點附近必買的知名伴手禮或土產。請直接回傳一個 JSON Array，格式如下，不要有 Markdown 標記或其他文字：
+                    [ {"name": "伴手禮名稱", "desc": "簡短介紹(20字內)"}, {"name": "伴手禮名稱", "desc": "簡短介紹(20字內)"}, {"name": "伴手禮名稱", "desc": "簡短介紹(20字內)"} ]`;
+                    let text = await generateGeminiContent(prompt);
+                    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                    const data = JSON.parse(text);
+                    if (Array.isArray(data)) { setAiSouvenirs(data); } else { throw new Error("Format error"); }
+                } catch (e) { console.error("AI Souvenir Error", e); setAiSouvenirs([{name: "推薦失敗", desc: "無法取得 AI 推薦，請稍後再試。"}]); } finally { setIsAiSouvenirLoading(false); }
+            };
+
+            const fetchAiNews = async (lat, lon) => {
+                setIsAiNewsLoading(true); setAiNews(null);
+                try {
+                    const prompt = `我現在在台灣的座標: 緯度 ${lat}, 經度 ${lon}。請分析這個地點(請自行判斷行政區)，並列出 4 個與此地高度相關的「新聞關鍵字」或「關注焦點」。
+                    請依照「重要性」與「熱門度」排序，並優先關注以下面向：
+                    1. **最新熱門旅遊情報** (如: 新開幕景點、IG打卡熱點、季節限定花海/市集)
+                    2. **交通與旅遊安全** (如: 易肇事路段、山區路況、觀光區治安、交通管制)
+                    3. **居住與環境安全** (如: 天坑/施工工安、淹水潛勢、治安熱點、防災警報)
+                    4. **在地熱門民生議題** (如: 交通建設、大型活動影響)
+                    請直接回傳一個 JSON Array，格式如下，不要有 Markdown 標記或其他文字：
+                    [ {"title": "顯示標題", "query": "搜尋關鍵字"}, {"title": "顯示標題", "query": "搜尋關鍵字"}, {"title": "顯示標題", "query": "搜尋關鍵字"}, {"title": "顯示標題", "query": "搜尋關鍵字"} ]`;
+                    let text = await generateGeminiContent(prompt);
+                    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                    const data = JSON.parse(text);
+                    if (Array.isArray(data)) { setAiNews(data); } else { throw new Error("Format error"); }
+                } catch (e) { console.error("AI News Error", e); setAiNews([{ title: "在地熱門景點", query: "附近 熱門景點 新聞" }, { title: "交通與安全資訊", query: "附近 交通安全 新聞" }]); } finally { setIsAiNewsLoading(false); }
+            };
+
+            const handleGetLocation = () => {
+                if (window.location.protocol === 'file:') { alert("⚠️ 注意：您目前是直接開啟 HTML 檔案 (file://)。建議使用 Local Server 或上傳至 GitHub Pages。"); }
+                if (!navigator.geolocation) { setLocationError("您的瀏覽器不支援定位功能"); return; }
+                setIsLocating(true); setLocationError(null);
+                const options = { enableHighAccuracy: true, timeout: 30000, maximumAge: 600000 };
+                navigator.geolocation.getCurrentPosition(
+                  (position) => {
+                    setUserLocation({ lat: position.coords.latitude, lon: position.coords.longitude });
+                    setIsLocating(false);
+                    fetchAiSouvenirs(position.coords.latitude, position.coords.longitude);
+                    fetchAiNews(position.coords.latitude, position.coords.longitude);
+                  },
+                  (error) => { console.error("Error getting location:", error); setLocationError("定位失敗，請確認 Wi-Fi 或 GPS 已開啟"); setIsLocating(false); }, options
+                );
+            };
+
+            const handleGetSpotTip = async (spot) => {
+                if (activeTipSpotId === spot.id) { setActiveTipSpotId(null); return; }
+                setActiveTipSpotId(spot.id);
+                if (aiTips[spot.id]) return;
+                setIsTipLoading(true);
+                try {
+                    const prompt = `Tell me one interesting fun fact or practical tip for "${spot.name}" in Taiwan. Respond in Traditional Chinese. Keep it under 60 words.`;
+                    const tip = await generateGeminiContent(prompt);
+                    setAiTips(prev => ({ ...prev, [spot.id]: tip }));
+                } catch (error) {
+                    if (error.message === 'NO_API_KEY') { setAiTips(prev => ({ ...prev, [spot.id]: "找不到 API Key，請檢查設定。" })); setIsKeyModalOpen(true); } else { setAiTips(prev => ({ ...prev, [spot.id]: `連線錯誤 (${error.message})` })); }
+                } finally { setIsTipLoading(false); }
+            };
+            
+            const handleOpenMap = () => {
+                let points = [];
+                if (selectedDay === 'all') { points = HOTEL_INFO.map(h => `${h.lat},${h.lon}`); } else {
+                    const currentDay = tripData.find(d => d.dayId === selectedDay);
+                    if (currentDay) { points = currentDay.spots.map(s => `${s.lat},${s.lon}`); }
+                }
+                if (points.length > 0) { window.open(`https://www.google.com/maps/dir/${points.join('/')}`, '_blank'); }
+            };
+
+            const openExpenseModal = (spot) => { setCurrentEditingSpot(spot); setExpenseForm({ category: 'food', amount: '', note: '' }); setPendingReceipts([]); setQuotaStatus({ type: 'normal', text: 'API 額度正常' }); setIsModalOpen(true); };
+            const saveExpense = () => { 
+                const newRecords = [];
+                if (expenseForm.amount && !isNaN(expenseForm.amount)) { newRecords.push({ id: Date.now(), category: expenseForm.category, amount: parseInt(expenseForm.amount), note: expenseForm.note }); }
+                pendingReceipts.forEach((p, idx) => { if (p.isChecked && !p.isAnalyzing && p.amount > 0) { newRecords.push({ id: Date.now() + idx + 1, category: expenseForm.category, amount: parseInt(p.amount), note: p.note }); } });
+                if (newRecords.length > 0) { const spotId = currentEditingSpot.id; setExpenses(prev => ({ ...prev, [spotId]: [...(prev[spotId] || []), ...newRecords] })); }
+                setIsModalOpen(false); 
+            };
+            const deleteExpense = (spotId, recordId) => { setExpenses(prev => ({ ...prev, [spotId]: prev[spotId].filter(r => r.id !== recordId) })); };
+            const togglePendingReceipt = (id) => { setPendingReceipts(prev => prev.map(p => p.id === id ? { ...p, isChecked: !p.isChecked } : p)); };
+            const removePendingReceipt = (id) => { setPendingReceipts(prev => prev.filter(p => p.id !== id)); };
+
+            const handleImageUpload = async (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length === 0) return;
+                const inputElement = e.target;
+                const newItems = files.map(file => ({ id: Math.random().toString(36).substr(2, 9), file, amount: 0, note: '分析中...', isAnalyzing: true, isChecked: true }));
+                setPendingReceipts(prev => [...prev, ...newItems]);
+                setIsAnalyzingReceipt(true);
+                setQuotaStatus({ type: 'normal', text: '高速分析中 (Paid Key)' });
+                await Promise.all(newItems.map(async (item) => {
+                    return new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = async () => {
+                            const base64String = reader.result;
+                            try {
+                                const prompt = `Analyze this receipt image. Extract: 1. Total amount. 2. Store name. 3. Date. Return JSON: {"amount", "store", "date"}.`;
+                                let responseText = await generateGeminiContent(prompt, base64String);
+                                let result;
+                                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                                if (jsonMatch) { result = JSON.parse(jsonMatch[0]); } else { responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim(); result = JSON.parse(responseText); }
+                                if (result && (result.amount || result.amount === 0)) {
+                                    const cleanAmount = String(result.amount).replace(/[^0-9.]/g, '');
+                                    const autoNote = (result.date ? result.date + " " : "") + (result.store || "");
+                                    setPendingReceipts(prev => prev.map(p => p.id === item.id ? { ...p, amount: cleanAmount, note: autoNote, isAnalyzing: false } : p));
+                                } else { throw new Error("Invalid JSON"); }
+                            } catch (error) {
+                                let errorMsg = '辨識失敗';
+                                if (error.message === 'NO_API_KEY') { errorMsg = '請設定 API Key'; setQuotaStatus({ type: 'error', text: '❌ 未設定 API 金鑰' }); setIsKeyModalOpen(true); }
+                                setPendingReceipts(prev => prev.map(p => p.id === item.id ? { ...p, note: errorMsg, isAnalyzing: false, isChecked: false } : p));
+                            } finally { resolve(); }
+                        };
+                        reader.readAsDataURL(item.file);
+                    });
+                }));
+                setIsAnalyzingReceipt(false); setQuotaStatus({ type: 'normal', text: '分析完成' }); inputElement.value = '';
+            };
+
+            const handleOpenDailyDetail = (dayStats) => { setSelectedDailyStats(dayStats); setIsDailyDetailOpen(true); };
+            const handleOpenEmailClick = () => { const savedEmail = localStorage.getItem('user_email') || "yofarn@gmail.com"; setEmailInput(savedEmail); setIsEmailModalOpen(true); };
+            
+            const handleSendEmail = async () => {
+                if (!emailInput) { alert("請輸入信箱"); return; }
+                setIsSendingEmail(true); localStorage.setItem('user_email', emailInput);
+                try {
+                    let tableRows = ""; let grandTotal = 0;
+                    tripData.forEach(day => {
+                        tableRows += `<tr style="background-color: #e2e8f0;"><td colspan="4" style="border: 1px solid #ddd; padding: 8px; font-weight: bold; color: #333;">${day.date} - ${day.title}</td></tr>`;
+                        day.spots.forEach(spot => {
+                            const spotExpenses = expenses[spot.id] || [];
+                            spotExpenses.forEach(record => { tableRows += `<tr><td style="border: 1px solid #ddd; padding: 8px;">${day.date}</td><td style="border: 1px solid #ddd; padding: 8px;">${spot.name} (${record.category})</td><td style="border: 1px solid #ddd; padding: 8px;">${record.note || '-'}</td><td style="border: 1px solid #ddd; padding: 8px;">${record.amount}</td></tr>`; grandTotal += (record.amount || 0); });
+                            if (spot.ticket) { const counts = getTicketCounts(spot.id); const ticketCost = (spot.ticket.adult * counts.adult + spot.ticket.child * counts.child); if (ticketCost > 0) { tableRows += `<tr><td style="border: 1px solid #ddd; padding: 8px;">${day.date}</td><td style="border: 1px solid #ddd; padding: 8px;">${spot.name} (門票)</td><td style="border: 1px solid #ddd; padding: 8px;">全票${counts.adult}, 優待${counts.child}</td><td style="border: 1px solid #ddd; padding: 8px;">${ticketCost}</td></tr>`; grandTotal += ticketCost; } }
+                        });
+                    });
+                    const htmlMessage = `<h2 style="color: #333;">2025 跨年親子遊 - 花費明細</h2><table style="width:100%; border-collapse: collapse; font-family: sans-serif; border: 1px solid #ddd;"><thead><tr style="background-color: #4ECDC4; color: white;"><th style="border: 1px solid #ddd; padding: 12px;">日期</th><th style="border: 1px solid #ddd; padding: 12px;">地點/項目</th><th style="border: 1px solid #ddd; padding: 12px;">備註</th><th style="border: 1px solid #ddd; padding: 12px;">金額 (NT$)</th></tr></thead><tbody>${tableRows}</tbody><tfoot><tr style="background-color: #f8f9fa;"><td colspan="3" style="border: 1px solid #ddd; padding: 12px; text-align: right; font-weight: bold; color: #333;">總計</td><td style="border: 1px solid #ddd; padding: 12px; font-weight: bold; color: #E63946;">NT$ ${grandTotal.toLocaleString()}</td></tr></tfoot></table><p style="font-size: 12px; color: #666; margin-top: 20px;">本信件由旅遊規劃 App 自動發送。</p>`;
+                    const params = { email: emailInput, to_email: emailInput, recipient: emailInput, subject: `旅遊花費報表_${new Date().toLocaleDateString()}`, message: htmlMessage };
+                    await window.emailjs.send("service_5yh7x6g", "template_dlbyml8", params);
+                    alert("✅ 發送成功！"); setIsEmailModalOpen(false);
+                } catch (error) { console.error("Email Error:", error); alert("❌ 發送失敗"); } finally { setIsSendingEmail(false); }
+            };
+
+            const handleCalcPress = (val) => {
+                if (val === 'AC') { setCalcInput(""); setCalcResult(""); } else if (val === 'DEL') { setCalcInput(prev => prev.slice(0, -1)); } else if (val === '=') {
+                    try { if (!calcInput) return; let expression = calcInput.replace(/\^/g, '**'); const result = new Function('return ' + expression)(); if (!isFinite(result) || isNaN(result)) { setCalcResult("Error"); } else { const formatted = Math.round(result * 100000000) / 100000000; setCalcResult(String(formatted)); } } catch (e) { setCalcResult("Error"); }
+                } else { setCalcInput(prev => prev + val); }
+            };
+
+            // Photo Search
+            const handlePhotoGps = () => {
+                setPhotoSearchStatus({ text: 'GPS 定位中...', type: 'loading' });
+                if (!navigator.geolocation) { setPhotoSearchStatus({ text: '不支援 GPS', type: 'error' }); return; }
+                navigator.geolocation.getCurrentPosition((position) => {
+                    const lat = position.coords.latitude; const lon = position.coords.longitude;
+                    if (mapInstanceRef.current) { mapInstanceRef.current.setView([lat, lon], 15); if (markerInstanceRef.current) mapInstanceRef.current.removeLayer(markerInstanceRef.current); markerInstanceRef.current = L.marker([lat, lon]).addTo(mapInstanceRef.current); }
+                    setPhotoSearchStatus({ text: '轉換地址中...', type: 'loading' });
+                    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14`).then(res => res.json()).then(data => { let place = data.address ? (data.address.city || data.address.town || data.address.district || "") : ""; if (place) { setPhotoSearchLocation(place); setPhotoSearchStatus({ text: `📍 已定位：${place}`, type: 'success' }); } else { setPhotoSearchLocation("我的位置"); setPhotoSearchStatus({ text: '無法辨識地名', type: 'error' }); } }).catch(err => setPhotoSearchStatus({ text: '網路錯誤', type: 'error' }));
+                }, (err) => setPhotoSearchStatus({ text: '定位失敗', type: 'error' }), { enableHighAccuracy: true, timeout: 20000 });
+            };
+            const executePhotoSearch = () => {
+                let locationVal = photoSearchLocation.trim();
+                if (!locationVal) { setPhotoSearchStatus({ text: '請輸入地點！', type: 'error' }); return; }
+                fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationVal)}`).then(res => res.json()).then(data => { if (data && data.length > 0 && mapInstanceRef.current) { mapInstanceRef.current.setView([data[0].lat, data[0].lon], 13); if (markerInstanceRef.current) mapInstanceRef.current.removeLayer(markerInstanceRef.current); markerInstanceRef.current = L.marker([data[0].lat, data[0].lon]).addTo(mapInstanceRef.current); } });
+                let finalQuery = locationVal; if (photoSearchPeople.length > 0) finalQuery += " " + photoSearchPeople.join(" ");
+                const url = `https://photos.google.com/search/${encodeURIComponent(finalQuery)}`;
+                setPhotoSearchStatus({ text: '正在開啟相簿...', type: 'success' }); setTimeout(() => { window.open(url, '_blank'); }, 500);
+            };
+            const togglePhotoPerson = (name) => { setPhotoSearchPeople(prev => prev.includes(name) ? prev.filter(p => p !== name) : [...prev, name]); };
+
+            // INSERT HERE
+            const stats = useMemo(() => { 
+                let totalJpy = 0; 
+                const currentExpenses = expenses || {};
+                Object.values(currentExpenses).forEach(recs => {
+                    if (Array.isArray(recs)) {
+                        recs.forEach(r => totalJpy += (r.amount || 0));
+                    }
+                });
+
+                if (tripData) {
+                    tripData.forEach(day => {
+                        if (day.spots) {
+                            day.spots.forEach(spot => {
+                                if (spot.ticket) {
+                                    const counts = spotTicketCounts[spot.id] || { adult: 2, child: 2 }; 
+                                    totalJpy += (spot.ticket.adult * counts.adult + spot.ticket.child * counts.child);
+                                }
+                            });
+                        }
+                    });
+                }
+                return { totalJpy }; 
+            }, [expenses, tripData, spotTicketCounts]);
+
+            const dailyStats = useMemo(() => {
+                if (!tripData) return [];
+                const currentExpenses = expenses || {};
+                return tripData.map(day => {
+                    let dayTotal = 0;
+                    if (day.spots) {
+                        day.spots.forEach(spot => {
+                            const spotExpenses = currentExpenses[spot.id] || [];
+                            if (Array.isArray(spotExpenses)) {
+                                spotExpenses.forEach(e => dayTotal += (e.amount || 0));
+                            }
+                            if (spot.ticket) {
+                                const counts = spotTicketCounts[spot.id] || { adult: 2, child: 2 };
+                                dayTotal += (spot.ticket.adult * counts.adult + spot.ticket.child * counts.child);
+                            }
+                        });
+                    }
+                    return {
+                        ...day,
+                        totalJpy: dayTotal,
+                        totalTwd: dayTotal * EXCHANGE_RATE
+                    };
+                });
+            }, [expenses, tripData, spotTicketCounts]);
+
+            const filteredTripData = selectedDay === 'all' ? tripData : tripData.filter(day => day.dayId === selectedDay);
+
+            return (
+                <div className="min-h-screen pb-24">
+                    <nav className="sticky top-0 z-50 bg-[#0B1121]/80 backdrop-blur-md border-b border-slate-700 shadow-sm">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex justify-between items-center h-20">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-[#FF9F1C] p-2 rounded-2xl text-white shadow-lg -rotate-6 border border-white/20"><Icons.Plane size={24} strokeWidth={3} /></div>
+                                    <div><div className="font-extrabold text-2xl tracking-tight text-slate-100 flex items-center gap-2">2025 跨年 <Icons.Smile className="text-[#FF9F1C]" size={20}/></div><div className="text-xs font-bold text-[#FF9F1C] tracking-widest uppercase bg-[#FF9F1C]/20 px-2 py-0.5 rounded-full inline-block border border-[#FF9F1C]/30">Family New Year Trip</div></div>
+                                </div>
+                                <div className="flex gap-2"><button onClick={() => setIsKeyModalOpen(true)} className="md:hidden bg-slate-800 p-2 rounded-full text-slate-400 border border-slate-700"><Icons.Settings size={20} /></button><div className="text-right hidden sm:block"><div className="text-[10px] font-bold text-slate-400 uppercase bg-slate-800 px-2 rounded-full border border-slate-700">Total</div><div className="font-mono font-bold text-[#FF6B6B] text-lg">NT$ {stats.totalJpy.toLocaleString()}</div></div></div>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="max-w-5xl mx-auto p-4 md:p-8">
+                        {activeTab === 'itinerary' && (
+                            <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
+                                <div className="flex flex-wrap gap-3 mb-8 justify-center sticky top-24 z-40 py-2 bg-[#0B1121]/80 backdrop-blur rounded-2xl border border-slate-700/50">
+                                    <button onClick={() => setSelectedDay('all')} className={`px-5 py-2 rounded-xl text-sm font-bold border transition-all shadow-sm ${selectedDay === 'all' ? 'bg-slate-200 text-slate-900 border-slate-200' : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'}`}>全部</button>
+                                    {tripData.map(day => (<button key={day.dayId} onClick={() => setSelectedDay(day.dayId)} className={`px-5 py-2 rounded-xl text-sm font-bold border transition-all shadow-sm ${selectedDay === day.dayId ? `${day.themeColor} text-slate-900 border-transparent` : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'}`}>{day.date.split(' ')[0]}</button>))}
+                                </div>
+                                <div className="space-y-12">
+                                    {filteredTripData.map((day) => (
+                                        <div key={day.dayId} className="relative">
+                                            <div className="flex items-center gap-4 mb-6">
+                                                <div className={`${day.themeColor} w-16 h-16 rounded-2xl flex flex-col items-center justify-center text-slate-900 shadow-[0_0_15px_rgba(255,255,255,0.1)] border-2 border-slate-700 -rotate-2`}><span className="text-xs font-bold uppercase">Day</span><span className="text-2xl font-black leading-none">{day.dayId.replace('day','')}</span></div>
+                                                <div className="glass-panel px-6 py-2 rounded-r-2xl rounded-bl-2xl shadow-sm border border-slate-700 flex-1"><div className="text-2xl font-black text-slate-200">{day.date}</div><div className="text-lg font-bold text-slate-400">{day.title}</div></div>
+                                            </div>
+                                            <div className="space-y-8 pl-4 border-l-4 border-dotted border-slate-700 ml-8">
+                                                {day.spots.map((spot, index) => {
+                                                    const spotExpenses = expenses[spot.id] || [];
+                                                    const spotTotal = spotExpenses.reduce((sum, r) => sum + (r.amount || 0), 0);
+                                                    const counts = getTicketCounts(spot.id);
+                                                    const ticketTotal = spot.ticket ? (spot.ticket.adult * counts.adult + spot.ticket.child * counts.child) : 0;
+                                                    const totalCostDisplay = spotTotal + ticketTotal;
+                                                    return (
+                                                        <div key={spot.id} className="relative group">
+                                                            <div className="absolute -left-[29px] top-6 w-5 h-5 rounded-full bg-[#0B1121] border-4 border-[#FFCB77] z-10 shadow-[0_0_10px_#FFCB77]"></div>
+                                                            <div className="glass-panel rounded-[2rem] p-6 md:p-8 shadow-lg border border-slate-700 transition-all hover:-translate-y-1 hover:border-slate-500 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] bg-[#1e293b]">
+                                                                <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
+                                                                    <div className="flex-1 w-full">
+                                                                        <div className="flex items-center justify-between mb-3">
+                                                                            <div className="relative group/time flex items-center gap-2 bg-[#334155] rounded-xl px-3 py-1 border border-slate-600 shadow-sm text-[#E07A5F] transform -rotate-1 hover:scale-105 transition-all w-fit">
+                                                                                {index === 0 ? <><span className="text-sm font-bold font-mono text-white shrink-0">抵達</span><input type="time" value={dayStartTimes[day.dayId] || "09:00"} onChange={(e) => handleDayStartTimeChange(day.dayId, e.target.value)} className="bg-slate-800 text-white rounded px-2 py-0.5 outline-none font-bold text-sm font-mono border border-slate-600 focus:border-[#FFCB77]" /></> : <><span className="text-sm font-bold font-mono text-[#FFCB77] shrink-0">抵達</span><span className="text-lg font-bold font-mono text-[#FFCB77]">{spot.time}</span></>}
+                                                                            </div>
+                                                                            <button onClick={() => handleDepartureToggle(spot.id)} className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-xs transition-all shadow-md active:scale-95 ${spot.isDeparted ? 'bg-[#4ECDC4]/20 text-[#4ECDC4] border border-[#4ECDC4]' : 'bg-[#FFCB77] text-slate-900 hover:bg-[#ffbf57]'}`}>{spot.isDeparted ? <><Icons.Check size={14} />已動身 {spot.actualDepTime}</> : <><Icons.Navigation2 size={14} />確認動身</>}</button>
+                                                                        </div>
+                                                                        <h3 className="text-2xl font-black text-slate-100 mb-2">{spot.name}</h3>
+                                                                        <div className="flex items-center gap-4 text-sm font-bold text-slate-400 mb-4 bg-slate-800 w-fit px-3 py-1 rounded-lg border border-slate-700">
+                                                                            <span className="flex items-center gap-1"><WeatherIcon type={spot.weather} /> {spot.temp}</span><span className="w-1.5 h-1.5 rounded-full bg-slate-600"></span><span className="flex items-center gap-1">停留 <select value={spot.stay} onChange={(e) => handleStayChangeNew(spot.id, e.target.value)} className="bg-transparent outline-none cursor-pointer border-b border-dashed border-slate-500 hover:border-[#FFCB77] hover:text-[#FFCB77] transition-colors ml-1 appearance-none text-center">{STAY_OPTIONS.map(opt => <option key={opt} value={opt} className="bg-slate-800 text-slate-200">{opt}</option>)}</select></span>
+                                                                        </div>
+                                                                        <div className="text-lg font-bold text-slate-300 leading-relaxed mb-6 relative"><span className="text-4xl absolute -top-4 -left-2 text-slate-700 z-0">“</span><p className="relative z-10">{spot.desc}</p></div>
+                                                                        <div className="flex flex-wrap gap-2 mb-4">
+                                                                            <div className="bg-slate-800 border border-slate-600 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-400 flex items-center gap-1"><Icons.MapPin size={12} className="text-[#4ECDC4]" /> {spot.mapcodeLabel}: <span className="font-mono text-slate-300">{spot.mapcodeDisplay}</span></div>
+                                                                            <a href={spot.gmapLink} target="_blank" rel="noreferrer" className="bg-[#4ECDC4] text-white hover:bg-[#3dbdb4] px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 shadow-[0_2px_10px_rgba(78,205,196,0.3)] active:translate-y-[1px] active:shadow-none">打開地圖 <Icons.ExternalLink size={10} /></a>
+                                                                            <button onClick={() => handleGetSpotTip(spot)} className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border ${activeTipSpotId === spot.id ? 'bg-[#8b5cf6] text-white border-[#8b5cf6] shadow-[0_0_15px_rgba(139,92,246,0.5)]' : 'bg-slate-800 text-[#a78bfa] border-[#8b5cf6] hover:bg-[#8b5cf6]/20'}`}><Icons.Sparkles size={12} /> {activeTipSpotId === spot.id ? '隱藏密技' : 'AI 密技'}</button>
+                                                                        </div>
+                                                                        {activeTipSpotId === spot.id && (<div className="animate-in slide-in-from-top-2 duration-300"><div className="bg-[#2e1065]/50 border border-[#8b5cf6]/50 rounded-2xl p-4 relative mt-2 backdrop-blur-sm"><div className="absolute -top-2.5 left-6 w-4 h-4 bg-[#2e1065] border-t border-l border-[#8b5cf6]/50 transform rotate-45"></div><h4 className="font-black text-[#a78bfa] text-xs uppercase mb-2 flex items-center gap-1"><Icons.Sparkles size={12}/> Gemini Spot Insight</h4>{isTipLoading && !aiTips[spot.id] ? <div className="typing-indicator flex gap-1 items-center h-6"><span className="w-1.5 h-1.5 bg-[#a78bfa] rounded-full"></span><span className="w-1.5 h-1.5 bg-[#a78bfa] rounded-full"></span><span className="w-1.5 h-1.5 bg-[#a78bfa] rounded-full"></span></div> : <p className="text-sm font-bold text-slate-200 leading-relaxed">{aiTips[spot.id]}</p>}</div></div>)}
+                                                                    </div>
+                                                                    <button onClick={() => openExpenseModal(spot)} className="self-start md:self-center bg-[#FFCB77] text-slate-900 p-4 rounded-2xl transition-all shadow-[0_4px_15px_rgba(255,203,119,0.3)] hover:-translate-y-1 hover:bg-[#ffbf57] active:translate-y-0 border border-white/10"><Icons.Wallet size={24} strokeWidth={2.5} /></button>
+                                                                </div>
+                                                                {(spotTotal > 0 || ticketTotal > 0) && (<div className="mt-4 pt-4 border-t border-dashed border-slate-700 flex justify-end items-center gap-2"><span className="text-xs font-bold text-slate-500 uppercase bg-slate-800 px-2 py-0.5 rounded border border-slate-700">Estimated Total</span><span className="text-xl font-mono font-black text-[#FF6B6B]">NT${totalCostDisplay.toLocaleString()}</span></div>)}
+                                                            </div>
+                                                            {spot.nextStop && (
+                                                                <div className="relative flex flex-col items-center my-6 gap-3">
+                                                                    <div className="absolute top-0 bottom-0 w-0.5 bg-slate-700 -z-10"></div>
+                                                                    <div className="bg-slate-800 border border-slate-600 px-4 py-2 rounded-2xl flex flex-col items-center gap-1 text-xs text-slate-400 shadow-lg z-10"><span className="font-bold text-slate-300">前往：{spot.nextStop.name}</span><div className="flex items-center gap-3"><span className="font-mono text-[#4ECDC4]">{spot.nextStop.distance}</span><span className="w-px h-3 bg-slate-600"></span><button onClick={() => handleTransportToggle(spot.id)} className="flex items-center gap-1 hover:text-[#4ECDC4] transition-colors font-bold">{transportModes[spot.id] === 'walk' ? <><Icons.Footprints size={12} className="text-[#FF9F1C]"/> {spot.nextStop.walkTime}</> : <><Icons.Car size={12} className="text-[#4ECDC4]"/> {spot.nextStop.driveTime}</>}</button></div></div>
+                                                                    <a href={spot.nextStop.navLink} target="_blank" rel="noreferrer" className="bg-[#4ECDC4] text-white px-4 py-2 rounded-full text-xs font-bold shadow-[0_0_15px_rgba(78,205,196,0.4)] hover:bg-[#3dbdb4] hover:scale-105 transition-all flex items-center gap-1 z-10 border border-white/10"><Icons.Navigation size={14} /> Google 導航</a>
+                                                                    <div className="text-slate-600 mt-1"><Icons.ArrowDown size={20} /></div>
+                                                                    {spot.nextStop && (<div className="text-xs text-slate-500 mt-1">預計抵達下一站: <span className="text-[#4ECDC4] font-bold font-mono">{spot.departureTime}</span> 後 + {transportModes[spot.id] === 'walk' ? spot.nextStop.walkTime : spot.nextStop.driveTime}</div>)}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'info' && (
+                            <div className="animate-in fade-in slide-in-from-bottom-6 duration-700 space-y-8">
+                                <div className="bg-[#131b2e] rounded-2xl border border-slate-700/50 shadow-2xl overflow-hidden">
+                                    <div className="p-6 md:p-8 border-b border-slate-700/50 flex items-center gap-4"><div className="bg-teal-500/10 p-3 rounded-xl border border-teal-500/20 shadow-[0_0_15px_rgba(20,184,166,0.15)]"><Icons.Navigation size={28} className="text-teal-400" /></div><div><h1 className="text-2xl font-bold text-white tracking-wide">實用導航 & 必買攻略</h1><p className="text-slate-400 text-sm mt-1">一鍵搜尋周邊生活機能</p></div></div>
+                                    <div className="p-6 md:p-8 bg-[#0f1623]">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                                            {NAV_BUTTONS_NEW.map((btn, index) => (
+                                                <button key={index} onClick={() => { const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(btn.query)}`; window.open(url, '_blank'); }} className="group relative flex items-center p-4 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-teal-500/50 hover:bg-slate-800 transition-all duration-300 text-left">
+                                                    <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-slate-700/50 flex items-center justify-center text-slate-300 group-hover:text-teal-400 group-hover:scale-110 group-hover:bg-slate-700 transition-all duration-300"><btn.icon size={24} /></div>
+                                                    <div className="ml-4 flex-grow"><h3 className="text-slate-200 font-medium group-hover:text-white transition-colors">{btn.title}</h3><p className="text-xs text-slate-500 mt-0.5 group-hover:text-teal-500/80 transition-colors flex items-center gap-1">開啟地圖 <Icons.MapPin size={10} /></p></div>
+                                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-3 top-3 text-slate-500"><Icons.ExternalLink size={14} /></div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="h-px bg-slate-700/50 w-full mb-8"></div>
+                                        <div>
+                                             <div className="flex justify-between items-center mb-6">
+                                                <h4 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Icons.Gift size={16} className="text-[#FF9F1C]"/> AI 伴手禮密技</h4>
+                                                {!userLocation && (<select value={infoRegion} onChange={(e) => setInfoRegion(e.target.value)} className="bg-slate-800 text-white text-xs py-2 px-4 rounded-xl border border-slate-600 outline-none focus:border-[#4ECDC4] cursor-pointer">{Object.entries(REGION_DATA).map(([key, data]) => (<option key={key} value={key}>{data.label}</option>))}</select>)}
+                                                <button onClick={handleGetLocation} disabled={isLocating} className={`ml-2 px-3 py-1.5 rounded-lg font-bold text-xs tracking-wide transition-all shadow-lg flex items-center gap-1 ${userLocation ? 'bg-[#4ECDC4]/20 text-[#4ECDC4] border border-[#4ECDC4]' : 'bg-slate-700 text-slate-300 border border-slate-600 hover:bg-slate-600'}`}>{isLocating ? <Icons.Loader2 className="animate-spin" size={12}/> : <Icons.LocateFixed size={12}/>}{userLocation ? '已定位' : '定位'}</button>
+                                            </div>
+                                            <div className="bg-[#0f172a]/50 rounded-2xl p-6 border border-slate-700 relative overflow-hidden min-h-[160px]">
+                                              {userLocation ? (
+                                                  <>
+                                                      <div className="text-lg font-bold mb-4 text-[#4ECDC4] relative z-10 flex items-center gap-2">📍 根據您目前位置的推薦：</div>
+                                                      {isAiSouvenirLoading ? (<div className="flex flex-col items-center justify-center py-8 relative z-10"><div className="typing-indicator flex gap-1 items-center h-6 mb-2"><span className="w-2 h-2 bg-[#4ECDC4] rounded-full"></span><span className="w-2 h-2 bg-[#4ECDC4] rounded-full"></span><span className="w-2 h-2 bg-[#4ECDC4] rounded-full"></span></div><span className="text-xs text-slate-400">正在分析當地名產...</span></div>) : (
+                                                          <>
+                                                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 relative z-10">{aiSouvenirs && aiSouvenirs.map((item, idx) => (<div key={idx} className="bg-slate-800 p-4 rounded-xl border border-slate-700 hover:border-[#4ECDC4]/50 transition-colors group"><div className="text-slate-200 font-bold text-sm group-hover:text-[#4ECDC4] transition-colors">{item.name}</div><div className="text-slate-500 text-[10px] mt-1">{item.desc}</div></div>))}</div>
+                                                              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((aiSouvenirs?.map(s => s.name.split(' ')[0]).join(' OR ') || 'souvenirs') + ' near me')}`} target="_blank" rel="noreferrer" className="block mt-6 text-center text-xs font-bold text-[#4ECDC4] hover:text-white bg-slate-800/50 py-3 rounded-xl border border-[#4ECDC4]/30 hover:bg-[#4ECDC4] transition-all relative z-10"><span className="flex items-center justify-center gap-2"><Icons.Search size={14}/> 在地圖上搜尋這些推薦</span></a>
+                                                          </>
+                                                      )}
+                                                      <div className="absolute -right-10 -bottom-10 w-40 h-40 rounded-full opacity-10 blur-2xl bg-[#4ECDC4]"></div>
+                                                  </>
+                                              ) : (
+                                                  <>
+                                                      <div className={`text-lg font-bold mb-4 ${REGION_DATA[infoRegion].color} relative z-10`}>你在{REGION_DATA[infoRegion].label}嗎？必買推薦：</div>
+                                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 relative z-10">{REGION_DATA[infoRegion].souvenirs.map((item, idx) => (<div key={idx} className="bg-slate-800 p-4 rounded-xl border border-slate-700 hover:border-[#FF9F1C]/50 transition-colors group"><div className="text-slate-200 font-bold text-sm group-hover:text-[#FF9F1C] transition-colors">{item.name}</div><div className="text-slate-500 text-[10px] mt-1">{item.desc}</div></div>))}</div>
+                                                      <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(REGION_DATA[infoRegion].souvenirs.map(s => s.name.split(' ')[0]).join(' OR ') + ' near me')}`} target="_blank" rel="noreferrer" className="block mt-6 text-center text-xs font-bold text-[#FF9F1C] hover:text-white bg-slate-800/50 py-3 rounded-xl border border-[#FF9F1C]/30 hover:bg-[#FF9F1C] transition-all relative z-10"><span className="flex items-center justify-center gap-2"><Icons.Search size={14}/> 在地圖上搜尋這些伴手禮</span></a>
+                                                      <div className={`absolute -right-10 -bottom-10 w-40 h-40 rounded-full opacity-10 blur-2xl ${REGION_DATA[infoRegion].color.replace('text-', 'bg-')}`}></div>
+                                                  </>
+                                              )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="glass-panel rounded-[2rem] p-8 shadow-lg border border-slate-700">
+                                    <h3 className="text-2xl font-black text-slate-200 mb-6 flex items-center gap-2"><span className="bg-[#4ECDC4] p-2 rounded-xl text-white rotate-3 shadow-lg"><Icons.Car size={20} /></span>車程預估</h3>
+                                    <div className="space-y-6">
+                                        <div className="bg-[#064e3b]/30 p-6 rounded-3xl border border-[#059669]/50 relative overflow-hidden backdrop-blur-sm">
+                                            <div className="flex justify-between items-center mb-4 relative z-10"><span className="bg-[#059669] text-white text-xs font-black px-3 py-1 rounded-full shadow-md">去程</span><span className="font-bold text-slate-300">{FLIGHT_INFO.outbound.date}</span></div>
+                                            <div className="flex justify-between items-center text-center relative z-10"><div><div className="text-4xl font-black text-slate-100">{FLIGHT_INFO.outbound.dep}</div><div className="text-sm font-bold text-slate-400">{FLIGHT_INFO.outbound.from}</div></div><div className="flex-1 px-4 flex flex-col items-center"><div className="text-xs font-bold text-slate-500 mb-1">{FLIGHT_INFO.outbound.duration}</div><div className="w-full border-t border-dashed border-slate-600 relative my-2"><Icons.Car size={16} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[#4ECDC4] bg-[#064e3b] px-1 rounded-full" /></div><div className="text-xs font-bold text-[#4ECDC4] mt-1">{FLIGHT_INFO.outbound.flight}</div></div><div><div className="text-4xl font-black text-slate-100">{FLIGHT_INFO.outbound.arr}</div><div className="text-sm font-bold text-slate-400">{FLIGHT_INFO.outbound.to}</div></div></div>
+                                        </div>
+                                        <div className="bg-[#881337]/30 p-6 rounded-3xl border border-[#e11d48]/50 relative overflow-hidden backdrop-blur-sm">
+                                            <div className="flex justify-between items-center mb-4 relative z-10"><span className="bg-[#e11d48] text-white text-xs font-black px-3 py-1 rounded-full shadow-md">回程</span><span className="font-bold text-slate-300">{FLIGHT_INFO.inbound.date}</span></div>
+                                            <div className="flex justify-between items-center text-center relative z-10"><div><div className="text-4xl font-black text-slate-100">{FLIGHT_INFO.inbound.dep}</div><div className="text-sm font-bold text-slate-400">{FLIGHT_INFO.inbound.from}</div></div><div className="flex-1 px-4 flex flex-col items-center"><div className="text-xs font-bold text-slate-500 mb-1">{FLIGHT_INFO.inbound.duration}</div><div className="w-full border-t border-dashed border-slate-600 relative my-2"><Icons.Car size={16} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[#fb7185] bg-[#881337] px-1 rounded-full" /></div><div className="text-xs font-bold text-[#fb7185] mt-1">{FLIGHT_INFO.inbound.flight}</div></div><div><div className="text-4xl font-black text-slate-100">{FLIGHT_INFO.inbound.arr}</div><div className="text-sm font-bold text-slate-400">{FLIGHT_INFO.inbound.to}</div></div></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="glass-panel rounded-[2rem] p-8 shadow-lg border border-slate-700">
+                                    <h3 className="text-2xl font-black text-slate-200 mb-6 flex items-center gap-2"><span className="bg-[#ec4899] p-2 rounded-xl text-white rotate-2 shadow-lg"><Icons.Newspaper size={20} /></span>在地熱點 & 歷史情報</h3>
+                                    {!userLocation ? (<div className="bg-[#1e293b] rounded-2xl p-8 border border-slate-600 border-dashed text-center"><div className="w-16 h-16 bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400"><Icons.LocateFixed size={32} /></div><p className="text-slate-400 font-bold mb-4">請先點擊上方的「定位」按鈕，<br/>AI 將為您分析此處的關注焦點。</p><button onClick={handleGetLocation} disabled={isLocating} className="bg-slate-700 text-white px-6 py-2 rounded-full text-sm font-bold hover:bg-slate-600 transition-colors">{isLocating ? '定位中...' : '立即定位'}</button></div>) : (<div className="space-y-4"><div className="text-sm text-slate-400 mb-2 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-[#ec4899] animate-pulse"></span>AI 已分析您所在位置的關注議題：</div>{isAiNewsLoading ? (<div className="grid grid-cols-1 md:grid-cols-2 gap-4">{[1, 2, 3, 4].map(i => (<div key={i} className="h-16 bg-slate-800/50 rounded-xl animate-pulse border border-slate-700"></div>))}</div>) : (<div className="grid grid-cols-1 md:grid-cols-2 gap-4">{aiNews && aiNews.map((news, idx) => (<a key={idx} href={`https://www.google.com/search?q=${encodeURIComponent(news.query)}&tbm=nws`} target="_blank" rel="noreferrer" className="group bg-[#1e293b] p-4 rounded-xl border border-slate-600 hover:border-[#ec4899] hover:bg-[#334155] transition-all flex items-center justify-between"><div className="flex items-center gap-3"><div className="text-[#ec4899] font-bold text-lg">#</div><div className="font-bold text-slate-200 group-hover:text-white">{news.title}</div></div><Icons.ExternalLink size={16} className="text-slate-500 group-hover:text-[#ec4899]" /></a>))}</div>)}<div className="mt-4 p-4 bg-[#ec4899]/10 rounded-xl border border-[#ec4899]/20 text-xs text-[#ec4899] font-bold flex gap-2"><Icons.Bot size={16} className="shrink-0" /><span>這些關鍵字是由 Gemini AI 根據您的座標推算的在地熱門話題或歷史事件，點擊即可搜尋相關新聞。</span></div></div>)}
+                                </div>
+                                <div className="glass-panel rounded-[2rem] p-8 shadow-lg border border-slate-700">
+                                    <h3 className="text-2xl font-black text-slate-200 mb-6 flex items-center gap-2"><span className="bg-[#3B82F6] p-2 rounded-xl text-white rotate-1 shadow-lg"><Icons.Car size={20} /></span>行車檢查清單<span className="text-xs bg-slate-700 text-slate-300 px-2 py-1 rounded ml-2">出發前確認</span></h3>
+                                    <div className="bg-[#1e293b] p-6 rounded-2xl border border-slate-600 font-mono text-sm leading-relaxed text-slate-300"><ul className="space-y-2 list-disc list-inside">{RENTAL_INFO_LIST.map((item, idx) => (<li key={idx} className="break-words"><span className="font-bold text-slate-200">{item.label}：</span>{item.value}</li>))}</ul></div>
+                                </div>
+                                <div className="glass-panel rounded-[2rem] p-8 shadow-lg border border-slate-700">
+                                    <h3 className="text-2xl font-black text-slate-200 mb-6 flex items-center gap-2"><span className="bg-[#FF9F1C] p-2 rounded-xl text-white -rotate-2 shadow-lg"><Icons.Hotel size={20} /></span>住宿安排</h3>
+                                    <div className="grid gap-4">{HOTEL_INFO.map((hotel, idx) => (<div key={idx} className="flex gap-4 p-4 rounded-2xl hover:bg-[#334155] transition-colors border border-slate-700 hover:border-[#FFCB77]/50 group bg-[#1e293b]"><div className="bg-slate-700 text-white font-bold text-sm h-10 w-12 rounded-xl flex items-center justify-center shrink-0 shadow-md group-hover:bg-[#FF9F1C] transition-colors">{hotel.day}</div><div className="flex-1"><h4 className="font-bold text-lg text-slate-200">{hotel.name}</h4><p className="text-sm font-bold text-slate-400 mt-1">{hotel.location} • {hotel.desc}</p></div><a href={hotel.link} target="_blank" rel="noreferrer" className="self-center bg-slate-800 border border-slate-600 p-2 rounded-full text-slate-400 hover:text-[#FF9F1C] hover:border-[#FF9F1C] transition-colors"><Icons.Navigation size={20} /></a></div>))}</div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="glass-panel rounded-[2rem] p-6 shadow-lg border border-slate-700"><h3 className="text-lg font-black text-slate-200 mb-4">緊急聯絡</h3><div className="space-y-4"><a href="tel:119" className="flex items-center justify-between p-4 bg-[#450a0a]/50 rounded-2xl text-red-200 font-bold hover:bg-[#450a0a] transition-colors border border-red-900"><span>🚑 救護車/火警</span><span className="text-2xl font-black">119</span></a><a href="tel:110" className="flex items-center justify-between p-4 bg-[#172554]/50 rounded-2xl text-blue-200 font-bold hover:bg-[#172554] transition-colors border border-blue-900"><span>🚓 警察局</span><span className="text-2xl font-black">110</span></a></div></div>
+                                    <div className="glass-panel rounded-[2rem] p-6 shadow-lg border border-slate-700"><h3 className="text-lg font-black text-slate-200 mb-4">實用連結</h3><div className="space-y-3"><a href="https://www.google.com/maps" target="_blank" rel="noreferrer" className="block w-full text-center py-3 bg-slate-700 border border-slate-600 text-slate-200 font-bold rounded-xl hover:bg-slate-600 active:bg-slate-500 transition-colors">Google Maps</a><a href="https://www.cwa.gov.tw/V8/C/" target="_blank" rel="noreferrer" className="block w-full text-center py-3 bg-blue-900/40 border border-blue-800 text-blue-200 font-bold rounded-xl hover:bg-blue-900/60 active:bg-slate-500 transition-colors">中央氣象署</a></div></div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'stats' && (
+                            <div className="animate-in fade-in slide-in-from-bottom-6 duration-700 space-y-8">
+                                <div className="glass-panel rounded-[2rem] p-8 shadow-lg border border-slate-700">
+                                    <h3 className="text-2xl font-black text-slate-200 mb-6 flex items-center gap-3"><span className="bg-[#FF6B6B] p-2 rounded-xl text-white rotate-2 shadow-lg"><Icons.Calculator size={20} /></span>工程計算機</h3>
+                                    <div className="bg-[#0f172a] rounded-2xl p-4 mb-6 border border-slate-600 shadow-inner">
+                                        <div className="text-right min-h-[1.5rem] text-sm text-slate-400 font-mono break-all tracking-wider">{calcInput || "0"}</div>
+                                        <div className="text-right text-3xl font-bold font-mono text-[#FFCB77] mt-1 break-all">{calcResult || (calcInput ? "=" : "")}</div>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-3">
+                                        <button onClick={() => handleCalcPress('AC')} className="bg-slate-700 text-red-300 font-bold p-4 rounded-xl hover:bg-slate-600 shadow-md">AC</button><button onClick={() => handleCalcPress('(')} className="bg-slate-800 text-slate-300 font-bold p-4 rounded-xl hover:bg-slate-700 shadow-md">(</button><button onClick={() => handleCalcPress(')')} className="bg-slate-800 text-slate-300 font-bold p-4 rounded-xl hover:bg-slate-700 shadow-md">)</button><button onClick={() => handleCalcPress('DEL')} className="bg-slate-700 text-slate-300 font-bold p-4 rounded-xl hover:bg-slate-600 shadow-md">⌫</button>
+                                        <button onClick={() => handleCalcPress('^')} className="bg-slate-800 text-[#4ECDC4] font-bold p-4 rounded-xl hover:bg-slate-700 shadow-md text-lg">^</button><button onClick={() => handleCalcPress('7')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">7</button><button onClick={() => handleCalcPress('8')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">8</button><button onClick={() => handleCalcPress('9')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">9</button>
+                                        <button onClick={() => handleCalcPress('/')} className="bg-slate-800 text-[#4ECDC4] font-bold p-4 rounded-xl hover:bg-slate-700 shadow-md text-xl">÷</button><button onClick={() => handleCalcPress('4')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">4</button><button onClick={() => handleCalcPress('5')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">5</button><button onClick={() => handleCalcPress('6')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">6</button>
+                                        <button onClick={() => handleCalcPress('*')} className="bg-slate-800 text-[#4ECDC4] font-bold p-4 rounded-xl hover:bg-slate-700 shadow-md text-xl">×</button><button onClick={() => handleCalcPress('1')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">1</button><button onClick={() => handleCalcPress('2')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">2</button><button onClick={() => handleCalcPress('3')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">3</button>
+                                        <button onClick={() => handleCalcPress('-')} className="bg-slate-800 text-[#4ECDC4] font-bold p-4 rounded-xl hover:bg-slate-700 shadow-md text-xl">-</button><button onClick={() => handleCalcPress('0')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">0</button><button onClick={() => handleCalcPress('.')} className="bg-[#1e293b] text-white font-bold p-4 rounded-xl hover:bg-[#334155] shadow-md text-xl">.</button><button onClick={() => handleCalcPress('+')} className="bg-slate-800 text-[#4ECDC4] font-bold p-4 rounded-xl hover:bg-slate-700 shadow-md text-xl">+</button>
+                                        <button onClick={() => handleCalcPress('=')} className="col-span-4 bg-[#FF6B6B] text-slate-900 font-bold p-4 rounded-xl hover:bg-[#ff5252] shadow-lg active:scale-[0.98] transition-transform text-xl">=</button>
+                                    </div>
+                                </div>
+
+                                <div className="glass-panel rounded-[2rem] overflow-hidden shadow-lg border border-slate-700">
+                                    <div className="bg-gradient-to-r from-blue-600 to-blue-500 p-4 text-center relative shadow-md">
+                                        <h1 className="text-white text-lg font-bold flex items-center justify-center gap-2"><Icons.UsersViewfinder size={24} /> 相簿複合搜尋器</h1>
+                                        <p className="text-blue-100 text-xs mt-1 opacity-80">位置與人物快速檢索</p>
+                                    </div>
+                                    <div ref={mapContainerRef} className="h-48 w-full bg-[#0f172a] z-0"></div>
+                                    <div className="p-6 space-y-6">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Step 1: 設定地點</label>
+                                            <div className="flex gap-2">
+                                                <div className="relative flex-1"><div className="absolute left-3 top-3 text-slate-400"><Icons.MapLocation size={18} /></div><input type="text" value={photoSearchLocation} onChange={(e) => setPhotoSearchLocation(e.target.value)} placeholder="例如: 關西" className="w-full bg-[#1e293b] border border-slate-600 rounded-xl py-2.5 pl-10 pr-4 text-slate-200 focus:outline-none focus:border-blue-500 shadow-sm transition"/></div>
+                                                <button onClick={handlePhotoGps} disabled={photoSearchStatus.type === 'loading'} className="bg-slate-700 border border-slate-600 text-slate-200 px-3 rounded-xl hover:bg-slate-600 hover:text-white transition shadow-sm flex items-center justify-center" title="定位目前位置">{photoSearchStatus.type === 'loading' ? <Icons.Loader2 className="animate-spin" size={20} /> : <Icons.LocateFixed size={20} />}</button>
+                                            </div>
+                                            <div className={`text-xs min-h-[1.5rem] flex items-center gap-1 ${photoSearchStatus.type === 'error' ? 'text-red-400 font-bold' : (photoSearchStatus.type === 'loading' ? 'text-blue-400' : 'text-slate-500')}`}><Icons.Info size={14} /> {photoSearchStatus.text}</div>
+                                        </div>
+                                        <div className="border-t border-slate-700"></div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Step 2: 包含人物 (可多選)</label>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {FAMILY_MEMBERS.map(person => (
+                                                    <label key={person} className="cursor-pointer relative group">
+                                                        <input type="checkbox" checked={photoSearchPeople.includes(person)} onChange={() => togglePhotoPerson(person)} className="peer sr-only" />
+                                                        <div className="border border-slate-600 bg-[#1e293b] rounded-xl p-3 flex items-center justify-between transition hover:bg-slate-700 peer-checked:bg-blue-900/30 peer-checked:border-blue-500 peer-checked:text-blue-400">
+                                                            <span className="font-medium text-slate-300 peer-checked:text-blue-300">{person}</span><Icons.Check size={16} className="text-blue-500 opacity-0 peer-checked:opacity-100 transition-opacity" />
+                                                        </div>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="pt-2"><button onClick={executePhotoSearch} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2 text-lg border border-blue-400/30"><Icons.Search size={20} /><span>搜尋相簿</span></button></div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-xl font-black text-slate-200 ml-2 flex items-center gap-2"><Icons.Star className="text-[#FFCB77]" fill="#FFCB77" /> 每日花費</h3>
+                                        <button onClick={handleOpenEmailClick} className="text-xs font-bold text-slate-800 bg-[#4ECDC4] px-3 py-1.5 rounded-full hover:bg-[#3dbdb4] transition-colors flex items-center gap-1 shadow-md"><Icons.Mail size={14} /> 發送報表</button>
+                                    </div>
+                                    {dailyStats.map((day) => (
+                                        <div key={day.dayId} onClick={() => handleOpenDailyDetail(day)} className="bg-[#1e293b] p-5 rounded-2xl shadow-md border border-slate-700 flex justify-between items-center transition-transform hover:-translate-y-1 hover:border-slate-500 cursor-pointer">
+                                            <div className="flex items-center gap-4"><div className={`${day.themeColor} px-3 py-1 rounded-lg text-xs font-black text-slate-900 shadow-sm`}>{day.date}</div><div className="font-bold text-slate-200">{day.title}</div></div>
+                                            <div className="text-right"><div className="text-[10px] font-bold text-slate-500 uppercase">Total</div><div className="text-lg font-mono font-black text-[#FF6B6B]">NT$ {day.totalJpy.toLocaleString()}</div></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    <div className="fixed bottom-0 w-full bg-[#0B1121]/95 backdrop-blur-md border-t border-slate-700 pb-safe z-40 flex justify-around py-3 text-xs font-bold text-slate-500">
+                        <button onClick={() => setActiveTab('itinerary')} className={`flex flex-col items-center gap-1 ${activeTab === 'itinerary' ? 'text-[#FFCB77]' : 'hover:text-slate-300'}`}><Icons.List size={22} /> 行程</button>
+                        <button onClick={() => setActiveTab('info')} className={`flex flex-col items-center gap-1 ${activeTab === 'info' ? 'text-[#4ECDC4]' : 'hover:text-slate-300'}`}><Icons.LayoutGrid size={22} /> 資訊</button>
+                        <button onClick={() => setActiveTab('stats')} className={`flex flex-col items-center gap-1 ${activeTab === 'stats' ? 'text-[#FF6B6B]' : 'hover:text-slate-300'}`}><Icons.Calculator size={22} /> 統計</button>
+                    </div>
+
+                    <div className="fixed bottom-24 right-4 flex flex-col gap-3 z-50">
+                        <button onClick={handleOpenMap} className="bg-slate-800 text-slate-300 p-3 rounded-full shadow-[0_4px_10px_rgba(0,0,0,0.5)] border border-slate-600 hover:bg-slate-700 hover:text-white transition-all"><Icons.Map size={24} /></button>
+                        <button onClick={() => setIsKeyModalOpen(true)} className="bg-slate-800 text-slate-300 p-3 rounded-full shadow-[0_4px_10px_rgba(0,0,0,0.5)] border border-slate-600 hover:bg-slate-700 hover:text-white transition-all"><Icons.Settings size={24} /></button>
+                    </div>
+
+                    <ApiKeyModal isOpen={isKeyModalOpen} onClose={() => setIsKeyModalOpen(false)} />
+                    
+                    {isModalOpen && currentEditingSpot && (
+                        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
+                            <div className="glass-panel rounded-2xl p-6 w-full max-w-sm bg-[#1e293b] border border-slate-600 flex flex-col max-h-[85vh]">
+                                <h3 className="font-bold text-lg mb-4 text-slate-200 shrink-0">{currentEditingSpot.name}</h3>
+                                <div className="overflow-y-auto flex-1 pr-1 -mr-1">
+                                    <input type="text" value={expenseForm.note} onChange={e => setExpenseForm({...expenseForm, note: e.target.value})} className="w-full bg-slate-800 p-3 rounded-xl mb-4 text-sm text-white border border-slate-600 outline-none focus:border-[#FFCB77]" placeholder="備註/摘要 (例如: 商店名)" />
+                                    <div className="relative mb-4">
+                                        <input type="number" value={expenseForm.amount} onChange={e => setExpenseForm({...expenseForm, amount: e.target.value})} className="w-full bg-slate-800 p-3 rounded-xl text-xl font-mono text-white border border-slate-600 outline-none focus:border-[#FFCB77] pr-32" placeholder="金額" autoFocus />
+                                        <div className="absolute right-12 top-1/2 -translate-y-1/2 flex items-center gap-2 z-10 pointer-events-none">
+                                            <div className="relative pointer-events-auto"><input type="file" accept="image/*" id="gallery-upload" className="hidden" multiple onChange={handleImageUpload}/><label htmlFor="gallery-upload" className={`p-1.5 rounded-lg cursor-pointer flex items-center justify-center transition-colors ${isAnalyzingReceipt ? 'text-slate-600 cursor-not-allowed' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}><Icons.Image size={20} /></label></div>
+                                            <div className="relative pointer-events-auto"><input type="file" accept="image/*" capture="environment" id="camera-upload" className="hidden" onChange={handleImageUpload}/><label htmlFor="camera-upload" className={`p-1.5 rounded-lg cursor-pointer flex items-center justify-center transition-colors ${isAnalyzingReceipt ? 'text-[#FFCB77] animate-pulse' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>{isAnalyzingReceipt ? <Icons.Loader2 className="animate-spin" size={20} /> : <Icons.Camera size={20} />}</label></div>
+                                        </div>
+                                    </div>
+                                    {pendingReceipts.length > 0 && (
+                                        <div className="mb-4 space-y-2">
+                                            <div className="flex justify-between items-center"><div className="text-xs font-bold text-[#4ECDC4] flex items-center gap-1"><Icons.Sparkles size={12}/> AI 辨識結果 ({pendingReceipts.filter(p=>p.isChecked).length})</div><div className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${quotaStatus.type === 'error' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}><div className={`w-1.5 h-1.5 rounded-full ${quotaStatus.type === 'error' ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>{quotaStatus.text}</div></div>
+                                            <div className="bg-slate-900/50 rounded-xl p-2 border border-[#4ECDC4]/30 space-y-2 max-h-40 overflow-y-auto">
+                                                {pendingReceipts.map(item => (
+                                                    <div key={item.id} className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${item.isChecked ? 'bg-[#4ECDC4]/10' : 'opacity-50'}`}>
+                                                        <input type="checkbox" checked={item.isChecked} onChange={() => togglePendingReceipt(item.id)} className="w-4 h-4 rounded border-slate-500 accent-[#4ECDC4] cursor-pointer shrink-0" />
+                                                        <div className="flex-1 min-w-0">{item.isAnalyzing ? (<div className="flex items-center gap-2 text-xs text-slate-400"><Icons.Loader2 size={12} className="animate-spin"/> {item.note}</div>) : (<><div className={`font-bold text-sm truncate ${item.note.includes('額度') || item.note.includes('失敗') ? 'text-red-400' : 'text-slate-200'}`}>{item.note || '未命名'}</div>{item.amount > 0 && <div className="text-xs text-[#4ECDC4] font-mono">NT${item.amount}</div>}</>)}</div>
+                                                        <button onClick={() => removePendingReceipt(item.id)} className="text-slate-500 hover:text-red-400 p-1"><Icons.X size={14} /></button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="pt-4 border-t border-dashed border-slate-700">
+                                        <div className="text-xs font-bold text-slate-400 mb-3">歷史紀錄</div>
+                                        <div className="space-y-2">
+                                            {(expenses[currentEditingSpot.id] || []).map(record => {
+                                                const dateMatch = record.note ? record.note.match(/^(\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2})\s+(.*)$/) : null;
+                                                return (<div key={record.id} className="flex justify-between items-center text-sm bg-slate-800 p-3 rounded-xl border border-slate-600"><div className="flex flex-col">{dateMatch ? <><span className="text-[10px] text-slate-500 block mb-0.5">{dateMatch[1]}</span><span className="font-bold text-slate-200 text-base">{dateMatch[2]}</span></> : <span className="font-bold text-slate-300">{record.note || "消費"}</span>}</div><div className="flex items-center gap-3"><span className="font-mono font-bold text-slate-100">NT${record.amount}</span><button onClick={() => deleteExpense(currentEditingSpot.id, record.id)} className="text-slate-400 hover:text-red-400"><Icons.X size={16} /></button></div></div>);
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 mt-4 shrink-0"><button onClick={() => setIsModalOpen(false)} className="flex-1 py-3 text-slate-400 hover:text-white">取消</button><button onClick={saveExpense} className="flex-1 bg-[#FFCB77] text-slate-900 rounded-xl font-bold shadow-[0_4px_0px_#d9aa5b] active:translate-y-[2px] active:shadow-none">{pendingReceipts.filter(p => p.isChecked).length > 0 ? `儲存 (${pendingReceipts.filter(p => p.isChecked).length + (expenseForm.amount ? 1 : 0)}筆)` : '儲存'}</button></div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    <DailyDetailModal isOpen={isDailyDetailOpen} onClose={() => setIsDailyDetailOpen(false)} dayData={selectedDailyStats} allExpenses={expenses} spotTicketCounts={spotTicketCounts} />
+
+                    {isEmailModalOpen && (
+                        <div className="fixed inset-0 bg-stone-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4 animate-in fade-in duration-200">
+                            <div className="glass-panel rounded-2xl p-6 w-full max-w-sm shadow-2xl bg-[#1e293b] border border-slate-700">
+                                <h3 className="font-bold text-lg mb-2 text-slate-200 flex items-center gap-2"><Icons.Mail size={20} className="text-[#4ECDC4]" /> 寄送花費報表</h3>
+                                <p className="text-xs text-slate-400 mb-4">將本次旅程的所有花費明細製作成表格，寄送到您的信箱。</p>
+                                <label className="block text-xs font-bold text-slate-300 mb-1">收件人信箱</label>
+                                <input type="email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="your@email.com" className="w-full bg-slate-800 p-3 rounded-xl mb-6 text-sm text-white border border-slate-600 outline-none focus:border-[#4ECDC4]" />
+                                <div className="flex gap-2">
+                                    <button onClick={() => setIsEmailModalOpen(false)} className="flex-1 py-2 text-slate-400 hover:text-white transition-colors" disabled={isSendingEmail}>取消</button>
+                                    <button onClick={handleSendEmail} className="flex-1 bg-[#4ECDC4] text-white rounded-xl font-bold py-2 shadow-lg hover:bg-[#3dbdb4] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2" disabled={isSendingEmail}>{isSendingEmail ? <><Icons.Loader2 size={16} className="animate-spin" /> 發送中...</> : '確認發送'}</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
