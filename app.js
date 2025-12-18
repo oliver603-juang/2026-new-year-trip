@@ -1,10 +1,8 @@
 /**
- * app.js - 2026 東京冬旅 (最終極致版 - Feature: Smart Ticket Counter & Estimation)
- * * 功能亮點：
- * 1. [Ticket] 實作門票計數器 (預設 2大2小)，狀態存於 localStorage。
- * 2. [Filter] AI 估價與 UI 顯示皆強制排除「住宿/飯店」類地點。
- * 3. [Calc] 每日花費統計已連動門票計算：(大人價x數量 + 小孩價x數量)。
- * 4. [Map] Google Maps 連結維持官方標準格式。
+ * app.js - 2026 東京冬旅/跨年親子遊 (最終極致版 - Fix: Correct Google Maps URLs)
+ * * 修復項目：
+ * 1. [Critical] 修正所有地圖連結：移除錯誤的 googleusercontent 前綴，改用標準 https://www.google.com/maps/...
+ * 2. [Feat] 保留所有 AI 票價估算 (排除飯店)、手動修改票價、行程連動、記帳功能。
  */
 
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
@@ -881,7 +879,6 @@ const ItineraryTab = ({
                   0
                 );
                 const counts = getTicketCounts(spot.id);
-
                 // Merge AI ticket info
                 const currentTicket = ticketOverrides[spot.id] || spot.ticket;
 
@@ -1207,7 +1204,7 @@ const InfoTab = () => {
               key={i}
               onClick={() =>
                 window.open(
-                  `http://googleusercontent.com/maps.google.com/search?q=${encodeURIComponent(
+                  `https://www.google.com/maps/search?q=${encodeURIComponent(
                     btn.query
                   )}`,
                   "_blank"
@@ -1312,8 +1309,7 @@ const InfoTab = () => {
         </h3>
         <div className="space-y-3">
           {hotelInfo.map((h, i) => {
-            // 自動生成正確的 Google Maps 搜尋連結 (使用名稱+地點)
-            const safeLink = `http://googleusercontent.com/maps.google.com/search?q=${encodeURIComponent(
+            const safeLink = `https://www.google.com/maps/search?q=${encodeURIComponent(
               h.name + " " + (h.location || "")
             )}`;
             return (
@@ -1656,13 +1652,10 @@ function App() {
   const [expenses, setExpenses] = useState(() =>
     JSON.parse(localStorage.getItem("expenses") || "{}")
   );
-
-  // --- [Feature] Ticket Counters State ---
   const [spotTicketCounts, setSpotTicketCounts] = useState(() => {
     const saved = localStorage.getItem("trip_spot_tickets");
     return saved ? JSON.parse(saved) : {};
   });
-
   // NEW: Ticket Overrides
   const [ticketOverrides, setTicketOverrides] = useState(() =>
     JSON.parse(localStorage.getItem("ticket_overrides") || "{}")
@@ -1720,12 +1713,9 @@ function App() {
   useEffect(() => {
     localStorage.setItem("expenses", JSON.stringify(expenses));
   }, [expenses]);
-
-  // [Feature] Persist Ticket Counts
   useEffect(() => {
     localStorage.setItem("trip_spot_tickets", JSON.stringify(spotTicketCounts));
   }, [spotTicketCounts]);
-
   useEffect(() => {
     localStorage.setItem("ticket_overrides", JSON.stringify(ticketOverrides));
   }, [ticketOverrides]);
@@ -1803,8 +1793,7 @@ function App() {
             distance: `${dist} km`,
             driveTime: Math.round((dist / 40) * 60 + 10) + "m",
             walkTime: Math.round((dist / 4) * 60) + "m",
-            // [Fixed] 標準導航連結
-            navLink: `http://googleusercontent.com/maps.google.com/dir/?api=1&origin=${
+            navLink: `https://www.google.com/maps/dir/?api=1&origin=${
               spot.lat
             },${spot.lon}&destination=${nextSpot.lat},${
               nextSpot.lon
@@ -1821,8 +1810,7 @@ function App() {
           nextStop: nextStopInfo,
           nextArrivalTime: nextArrivalTimeStr,
           mapcodeDisplay: spot.mapCode || "GPS",
-          // [Fixed] 標準地圖連結
-          gmapLink: `http://googleusercontent.com/maps.google.com/search/?api=1&query=${spot.lat},${spot.lon}`,
+          gmapLink: `https://www.google.com/maps/search/?api=1&query=${spot.lat},${spot.lon}`,
           weather: "sunny",
           temp: "10°C",
           ticket: spot.ticket || null,
@@ -1832,20 +1820,18 @@ function App() {
     });
   }, [dayStartTimes, actualDepartures, stays, transportModes]);
 
-  // --- [Feature] 統計數據計算 (含門票) ---
+  // --- 統計數據計算 ---
   const dailyStats = useMemo(() => {
     return tripData.map((d) => {
       let dayTotal = 0;
       d.spots.forEach((spot) => {
-        // 1. 一般消費
         const spotExpenses = expenses[spot.id] || [];
         spotExpenses.forEach((e) => (dayTotal += e.amount || 0));
-
-        // 2. 門票消費 (排除飯店)
-        if (!isHotel(spot.name)) {
+        if (spot.ticket) {
+          const counts = spotTicketCounts[spot.id] || { adult: 2, child: 2 };
+          // USE OVERRIDE IF EXISTS
           const currentTicket = ticketOverrides[spot.id] || spot.ticket;
           if (currentTicket) {
-            const counts = spotTicketCounts[spot.id] || { adult: 2, child: 2 };
             dayTotal +=
               currentTicket.adult * counts.adult +
               currentTicket.child * counts.child;
@@ -1882,8 +1868,6 @@ function App() {
       }
       return newState;
     });
-
-  // [Feature] Get/Update Ticket Counts
   const getTicketCounts = (id) =>
     spotTicketCounts[id] || { adult: 2, child: 2 };
   const updateSpotTicketCount = (spotId, type, delta) => {
@@ -2131,7 +2115,6 @@ function App() {
     }
   };
 
-  // --- NEW: Map Link Fix ---
   const handleOpenMap = () => {
     let points = [];
     if (selectedDay === "all") {
@@ -2151,7 +2134,7 @@ function App() {
 
     if (points.length > 0) {
       // [Fixed] 標準 Google Maps Dir 連結
-      const url = `http://googleusercontent.com/maps.google.com/dir/?api=1&origin=${
+      const url = `https://www.google.com/maps/dir/?api=1&origin=${
         points[0]
       }&destination=${points[points.length - 1]}&waypoints=${points
         .slice(1, -1)
