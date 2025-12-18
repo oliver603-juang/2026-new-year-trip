@@ -1,18 +1,19 @@
 {
-  "name": "2026 跨年親子旅遊",
-  "short_name": "跨年旅遊",
+  "name": "2025 跨年親子遊",
+  "short_name": "跨年親子遊",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#F5F5F5",
-  "theme_color": "#FFC8DD",
+  "background_color": "#F9F7F5",
+  "theme_color": "#E4C2C1",
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "icon.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "icon.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
