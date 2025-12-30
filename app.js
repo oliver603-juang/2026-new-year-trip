@@ -1,5 +1,5 @@
 /**
- * app.js - 2026 東京冬旅/跨年親子遊 (最終極致版 - Fix: Correct Google Maps URLs)
+ * app.js - 2026 跨年親子遊 (最終極致版 - Fix: Correct Google Maps URLs)
  * * 修復項目：
  * 1. [Critical] 修正所有地圖連結：移除錯誤的 googleusercontent 前綴，改用標準 https://www.google.com/maps/...
  * 2. [Feat] 保留所有 AI 票價估算 (排除飯店)、手動修改票價、行程連動、記帳功能。
@@ -1204,7 +1204,7 @@ const InfoTab = () => {
               key={i}
               onClick={() =>
                 window.open(
-                  `https://www.google.com/maps/search?q=${encodeURIComponent(
+                  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
                     btn.query
                   )}`,
                   "_blank"
@@ -1309,7 +1309,8 @@ const InfoTab = () => {
         </h3>
         <div className="space-y-3">
           {hotelInfo.map((h, i) => {
-            const safeLink = `https://www.google.com/maps/search?q=${encodeURIComponent(
+            // 修正網址並補上遺漏的 $ 符號
+            const safeLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
               h.name + " " + (h.location || "")
             )}`;
             return (
