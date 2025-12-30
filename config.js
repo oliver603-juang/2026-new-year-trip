@@ -24,7 +24,7 @@ window.STAY_OPTIONS = [
   "-",
 ];
 
-// 2. 行程詳細資料 (由 KML 轉換)
+// 2. 行程詳細資料 (由 KML 轉換 - 已加入 HARD OFF)
 window.RAW_KML_DATA = [
   {
     dayId: "day1",
@@ -37,6 +37,15 @@ window.RAW_KML_DATA = [
         lat: 25.0665561,
         lon: 121.5105023,
         desc: "旅程起點。",
+        mapCode: "GPS",
+        ticket: { adult: 0, child: 0 },
+      },
+      {
+        // --- 新增的行程 ---
+        name: "HARD OFF海德沃福桃園楊梅店",
+        lat: 24.9082819,
+        lon: 121.1680692,
+        desc: "挖寶好去處！(新增行程)",
         mapCode: "GPS",
         ticket: { adult: 0, child: 0 },
       },
@@ -978,3 +987,4 @@ window.Icons = {
       e("path", { d: "M12 17h.01" })
     ),
 };
+
