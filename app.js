@@ -2013,21 +2013,33 @@ function App() {
     });
   };
 
-  // NEW: Manual Ticket Edit Handler
+  // Manual Ticket / Hotel Cost Edit Handler
   const handleManualTicketEdit = (spotId) => {
     const current = ticketOverrides[spotId] || { adult: 0, child: 0 };
-    const adultPrice = prompt("請輸入成人票價 (JPY):", current.adult);
-    if (adultPrice === null) return;
-    const childPrice = prompt("請輸入兒童票價 (JPY):", current.child);
-    if (childPrice === null) return;
-
-    setTicketOverrides((prev) => ({
-      ...prev,
-      [spotId]: {
-        adult: parseInt(adultPrice) || 0,
-        child: parseInt(childPrice) || 0,
-      },
-    }));
+    // 判斷是否為住宿
+    const spotName = tripData.flatMap(d => d.spots).find(s => s.id === spotId)?.name || "";
+    const isAccom = isHotel(spotName);
+    
+    if (isAccom) {
+      const roomPrice = prompt("請輸入每晚房價 (NT$):", current.adult);
+      if (roomPrice === null) return;
+      setTicketOverrides((prev) => ({
+        ...prev,
+        [spotId]: { adult: parseInt(roomPrice) || 0, child: 0 },
+      }));
+    } else {
+      const adultPrice = prompt("請輸入成人票價 (NT$):", current.adult);
+      if (adultPrice === null) return;
+      const childPrice = prompt("請輸入兒童票價 (NT$):", current.child);
+      if (childPrice === null) return;
+      setTicketOverrides((prev) => ({
+        ...prev,
+        [spotId]: {
+          adult: parseInt(adultPrice) || 0,
+          child: parseInt(childPrice) || 0,
+        },
+      }));
+    }
   };
 
   const openExpenseModal = (spot) => {
@@ -2223,15 +2235,27 @@ ${JSON.stringify(spotList)}
         }
       }
 
-      // 2. 估算住宿費用
+      // 2. 估算住宿費用（含入住日期）
       if (hotelList.length > 0) {
-        const hotelPrompt = `請用 Google Search 查詢以下台灣飯店/民宿的【最新每晚房價】。
-請查詢標準雙人房或家庭房的平均價格(台幣)。
+        // 從行程資料中取得入住日期
+        const hotelWithDates = [];
+        tripData.forEach((day) => {
+          day.spots.forEach((spot) => {
+            if (isHotel(spot.name)) {
+              hotelWithDates.push({ id: spot.id, name: spot.name, checkInDate: day.date });
+            }
+          });
+        });
+
+        const hotelPrompt = `請用 Google Search 查詢以下台灣飯店/民宿在指定入住日的【實際每晚房價】。
+
+請查詢各飯店官網或訂房平台（Booking.com、Agoda、Hotels.com）上的標準雙人房或家庭房價格(台幣)。
+請盡量查詢接近入住日期的真實房價，而非平均價。
+
+飯店列表（含入住日期）:
+${JSON.stringify(hotelWithDates)}
+
 回傳 adult 欄位填入每晚房價，child 填 0。
-
-飯店列表:
-${JSON.stringify(hotelList)}
-
 請回傳純 JSON 格式 (不要 Markdown):
 {
   "spot_id": { "adult": 3500, "child": 0 },
