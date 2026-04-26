@@ -112,7 +112,7 @@ const generateGeminiContent = async (
   const apiKey = localStorage.getItem("gemini_api_key") || "";
   if (!apiKey) throw new Error("NO_API_KEY");
 
-  const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
+  const MODEL_NAME = "gemini-2.5-flash";
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
   const contents = [{ role: "user", parts: [{ text: prompt }] }];
@@ -410,7 +410,7 @@ const ExpenseModal = ({
                         </div>
                         <div className="flex justify-between items-center mt-0.5">
                           <div className="text-xs text-[#E4C2C1] font-mono font-bold">
-                            ¥{item.amount}
+                            NT${item.amount}
                           </div>
                           {item.timestamp && (
                             <div className="text-[10px] text-gray-400">
@@ -486,7 +486,7 @@ const ExpenseModal = ({
                   </div>
                   <div className="flex gap-3 items-center">
                     <span className="font-mono font-bold text-gray-800">
-                      ¥{r.amount}
+                      NT${r.amount}
                     </span>
                     <button
                       onClick={() => deleteExpense(currentEditingSpot.id, r.id)}
@@ -721,7 +721,7 @@ const DailyDetailModal = ({
                 )}
               </div>
               <div className="font-mono font-bold text-[#E4C2C1] text-lg">
-                ¥{item.amount.toLocaleString()}
+                NT${item.amount.toLocaleString()}
               </div>
             </div>
           ))}
@@ -729,9 +729,9 @@ const DailyDetailModal = ({
 
         <div className="mt-4 pt-4 border-t border-gray-100 space-y-1">
           <div className="flex justify-between">
-            <span className="text-sm font-bold text-gray-500">總計 (JPY)</span>
+            <span className="text-sm font-bold text-gray-500">總計 (TWD)</span>
             <span className="text-xl font-mono font-black text-[#E4C2C1]">
-              ¥{totalTWD.toLocaleString()}
+              NT${totalTWD.toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between">
@@ -812,6 +812,7 @@ const ItineraryTab = ({
   STAY_OPTIONS,
   ticketOverrides,
   handleManualTicketEdit,
+  isTicketEstimating,
 }) => {
   const Icons = window.Icons;
   const filteredTripData =
@@ -881,16 +882,14 @@ const ItineraryTab = ({
                 const counts = getTicketCounts(spot.id);
                 // Merge AI ticket info
                 const currentTicket = ticketOverrides[spot.id] || spot.ticket;
-
-                // [Fix] 雙重檢查：如果是飯店，強制不顯示票價
                 const isAccommodation = isHotel(spot.name);
-                const hasTicketPrice =
-                  !isAccommodation &&
-                  currentTicket &&
-                  (currentTicket.adult > 0 || currentTicket.child > 0);
-                const ticketTotal = hasTicketPrice
-                  ? currentTicket.adult * counts.adult +
-                    currentTicket.child * counts.child
+                
+                // 統一處理：景點門票或住宿費用
+                const hasCostInfo = currentTicket && (currentTicket.adult > 0 || currentTicket.child > 0);
+                const ticketTotal = hasCostInfo
+                  ? isAccommodation
+                    ? currentTicket.adult * counts.adult // 住宿：房價×房數
+                    : currentTicket.adult * counts.adult + currentTicket.child * counts.child // 門票
                   : 0;
 
                 const isWalk = transportModes[spot.id] === "walk";
@@ -971,95 +970,77 @@ const ItineraryTab = ({
                               ))}
                             </select>
                           </div>
-                          {/* Ticket Price Button - Hidden if Hotel */}
-                          {!isAccommodation &&
-                            (hasTicketPrice ? (
-                              <button
-                                onClick={() => handleManualTicketEdit(spot.id)}
-                                className="text-[#E4C2C1] flex items-center gap-1 hover:bg-[#E4C2C1]/10 px-2 py-1 rounded-lg transition-colors"
-                              >
-                                <Icons.Ticket size={12} />
-                                {ticketOverrides[spot.id] ? (
-                                  <Icons.Sparkles
-                                    size={10}
-                                    className="mr-0.5"
-                                  />
-                                ) : null}
-                                ¥{ticketTotal.toLocaleString()}
-                                <Icons.Edit
-                                  size={10}
-                                  className="text-gray-300 ml-1"
-                                />
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleManualTicketEdit(spot.id)}
-                                className="text-gray-300 flex items-center gap-1 hover:text-[#A9BFA8] transition-colors text-[10px]"
-                              >
-                                <Icons.Ticket size={12} /> 新增票價
-                              </button>
-                            ))}
                         </div>
 
-                        {/* Ticket Count Control (The requested UI) */}
-                        {hasTicketPrice && (
-                          <div className="bg-gray-50 border border-gray-100 p-3 rounded-xl flex gap-4 text-[10px] mb-4">
-                            {/* Adult Control */}
-                            <div className="flex items-center gap-2 text-gray-500">
-                              <span>大</span>
-                              <div className="flex items-center bg-white border rounded-lg px-1 shadow-sm">
-                                <button
-                                  onClick={() =>
-                                    updateSpotTicketCount(spot.id, "adult", -1)
-                                  }
-                                  className="text-gray-400 hover:text-[#E4C2C1] px-1.5 py-0.5 font-bold transition-colors"
-                                >
-                                  -
-                                </button>
-                                <span className="text-gray-800 font-bold px-1 min-w-[12px] text-center">
-                                  {counts.adult}
-                                </span>
-                                <button
-                                  onClick={() =>
-                                    updateSpotTicketCount(spot.id, "adult", 1)
-                                  }
-                                  className="text-gray-400 hover:text-[#E4C2C1] px-1.5 py-0.5 font-bold transition-colors"
-                                >
-                                  +
-                                </button>
+                        {/* === 費用顯示區（門票 or 住宿） === */}
+                        {hasCostInfo ? (
+                          <div className="bg-gray-50 border border-gray-100 p-3 rounded-xl mb-4">
+                            {isAccommodation ? (
+                              /* 住宿費用顯示 */
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3 text-xs">
+                                  <div className="flex items-center gap-1 text-gray-600">
+                                    <Icons.Hotel size={14} className="text-[#A9BFA8]" />
+                                    <span>住宿費</span>
+                                    <span className="font-mono font-bold text-[#E4C2C1]">NT${currentTicket.adult.toLocaleString()}</span>
+                                    <span className="text-gray-400">×</span>
+                                    <div className="flex items-center bg-white border rounded-lg px-1 shadow-sm">
+                                      <button onClick={() => updateSpotTicketCount(spot.id, "adult", -1)} className="text-gray-400 hover:text-[#E4C2C1] px-1 font-bold">-</button>
+                                      <span className="text-gray-800 font-bold px-1">{counts.adult}</span>
+                                      <button onClick={() => updateSpotTicketCount(spot.id, "adult", 1)} className="text-gray-400 hover:text-[#E4C2C1] px-1 font-bold">+</button>
+                                    </div>
+                                    <span className="text-gray-400">晚</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-mono font-bold text-[#E4C2C1]">共 NT${ticketTotal.toLocaleString()}</span>
+                                  <button onClick={() => handleManualTicketEdit(spot.id)} className="text-gray-300 hover:text-gray-500"><Icons.Edit size={12} /></button>
+                                </div>
                               </div>
-                            </div>
-                            {/* Child Control */}
-                            <div className="flex items-center gap-2 text-gray-500">
-                              <span>小</span>
-                              <div className="flex items-center bg-white border rounded-lg px-1 shadow-sm">
-                                <button
-                                  onClick={() =>
-                                    updateSpotTicketCount(spot.id, "child", -1)
-                                  }
-                                  className="text-gray-400 hover:text-[#E4C2C1] px-1.5 py-0.5 font-bold transition-colors"
-                                >
-                                  -
-                                </button>
-                                <span className="text-gray-800 font-bold px-1 min-w-[12px] text-center">
-                                  {counts.child}
-                                </span>
-                                <button
-                                  onClick={() =>
-                                    updateSpotTicketCount(spot.id, "child", 1)
-                                  }
-                                  className="text-gray-400 hover:text-[#E4C2C1] px-1.5 py-0.5 font-bold transition-colors"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            </div>
-                            {ticketOverrides[spot.id] && (
-                              <div className="ml-auto text-[#A9BFA8] italic text-[9px] self-center">
-                                AI/Manual
+                            ) : (
+                              /* 門票費用顯示 */
+                              <div>
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs">
+                                    <div className="flex items-center gap-1 text-gray-600">
+                                      <Icons.Ticket size={14} className="text-[#E4C2C1]" />
+                                      <span>成人票</span>
+                                      <span className="font-mono font-bold text-[#E4C2C1]">NT${currentTicket.adult.toLocaleString()}</span>
+                                      <span className="text-gray-400">×</span>
+                                      <div className="flex items-center bg-white border rounded-lg px-1 shadow-sm">
+                                        <button onClick={() => updateSpotTicketCount(spot.id, "adult", -1)} className="text-gray-400 hover:text-[#E4C2C1] px-1 font-bold">-</button>
+                                        <span className="text-gray-800 font-bold px-1">{counts.adult}</span>
+                                        <button onClick={() => updateSpotTicketCount(spot.id, "adult", 1)} className="text-gray-400 hover:text-[#E4C2C1] px-1 font-bold">+</button>
+                                      </div>
+                                    </div>
+                                    {currentTicket.child > 0 && (
+                                      <div className="flex items-center gap-1 text-gray-600">
+                                        <span>兒童票</span>
+                                        <span className="font-mono font-bold text-[#A9BFA8]">NT${currentTicket.child.toLocaleString()}</span>
+                                        <span className="text-gray-400">×</span>
+                                        <div className="flex items-center bg-white border rounded-lg px-1 shadow-sm">
+                                          <button onClick={() => updateSpotTicketCount(spot.id, "child", -1)} className="text-gray-400 hover:text-[#A9BFA8] px-1 font-bold">-</button>
+                                          <span className="text-gray-800 font-bold px-1">{counts.child}</span>
+                                          <button onClick={() => updateSpotTicketCount(spot.id, "child", 1)} className="text-gray-400 hover:text-[#A9BFA8] px-1 font-bold">+</button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <button onClick={() => handleManualTicketEdit(spot.id)} className="text-gray-300 hover:text-gray-500 shrink-0"><Icons.Edit size={12} /></button>
+                                </div>
+                                <div className="text-right text-sm font-mono font-bold text-[#E4C2C1]">共 NT${ticketTotal.toLocaleString()}</div>
                               </div>
                             )}
+                            {ticketOverrides[spot.id] && (
+                              <div className="text-right text-[9px] text-[#A9BFA8] italic mt-1">AI 估算</div>
+                            )}
                           </div>
+                        ) : (
+                          !isAccommodation && (
+                            <div className="text-[10px] text-gray-300 mb-4 flex items-center gap-1">
+                              <Icons.Ticket size={12} /> {isTicketEstimating ? "AI 估價中..." : "免費 / 待估價"}
+                            </div>
+                          )
                         )}
 
                         <p className="text-sm text-gray-500 mb-4 leading-relaxed">
@@ -1087,12 +1068,12 @@ const ItineraryTab = ({
                         </div>
 
                         {(spotTotal > 0 || ticketTotal > 0) && (
-                          <div className="mt-3 pt-2 border-t border-dashed border-slate-700/50 text-right">
-                            <span className="text-[10px] text-slate-500 mr-2 uppercase">
-                              Total Est.
+                          <div className="mt-3 pt-2 border-t border-dashed border-gray-200 text-right">
+                            <span className="text-[10px] text-gray-400 mr-2 uppercase">
+                              小計
                             </span>
                             <span className="text-sm font-mono font-bold text-[#FF6B6B]">
-                              ¥{(spotTotal + ticketTotal).toLocaleString()}
+                              NT${(spotTotal + ticketTotal).toLocaleString()}
                             </span>
                           </div>
                         )}
@@ -1367,7 +1348,7 @@ const StatsTab = ({
           })}
         </div>
         <div className="text-xs text-gray-400 font-mono mb-6">
-          ( ¥{stats.totalJpy.toLocaleString()} )
+          ( NT${stats.totalJpy.toLocaleString()} )
         </div>
         <button
           onClick={handleOpenEmailClick}
@@ -1437,7 +1418,16 @@ const GuardTab = ({
     setAiLoading(true);
     setFlightAnalysis("分析中...");
     try {
-      const prompt = `分析交通風險：去程 ${flightInfo.outbound?.date} ${flightInfo.outbound?.flight}，回程 ${flightInfo.inbound?.date} ${flightInfo.inbound?.flight}。`;
+      const prompt = `請查詢以下交通資訊的【最新即時狀態】：
+去程：${flightInfo.outbound?.date} ${flightInfo.outbound?.flight} 從${flightInfo.outbound?.from}到${flightInfo.outbound?.to}
+回程：${flightInfo.inbound?.date} ${flightInfo.inbound?.flight} 從${flightInfo.inbound?.from}到${flightInfo.inbound?.to}
+
+請提供：
+1. 當日天氣預報（如有）
+2. 路況/國道施工/交通管制資訊
+3. 預估交通時間與建議出發時段
+4. 替代路線建議
+請用繁體中文回答，標注資訊查詢時間。`;
       const res = await generateGeminiContent(prompt, null, true);
       setFlightAnalysis(res);
     } catch (e) {
@@ -1451,7 +1441,12 @@ const GuardTab = ({
     setAiLoading(true);
     setHotelAnalysis((p) => ({ ...p, [h.name]: "分析中..." }));
     try {
-      const prompt = `評估飯店治安、機能：${h.name} (${h.location})`;
+      const prompt = `請查詢「${h.name}」(${h.location}) 的【最新資訊】：
+1. Google Maps 最新評分與近期評價摘要（1個月內）
+2. 周邊治安與機能（便利商店、餐廳、停車場）
+3. 住客常見正面/負面回饋
+4. 入住/退房注意事項
+請用繁體中文回答，標注資訊來源。`;
       const res = await generateGeminiContent(prompt, null, true);
       setHotelAnalysis((p) => ({ ...p, [h.name]: res }));
     } catch (e) {
@@ -1465,7 +1460,13 @@ const GuardTab = ({
     setAiLoading(true);
     setSpotAnalysis((p) => ({ ...p, [s.id]: "分析中..." }));
     try {
-      const prompt = `景點掃雷：${s.name}\n1.營業驗證 2.雨雪備案 3.周邊3個平價美食推薦。`;
+      const prompt = `請查詢景點「${s.name}」的【最新即時資訊】：
+1. 目前營業狀態（是否正常營業、臨時公告、休館日）
+2. 最新門票價格（成人/兒童/優惠）
+3. 建議停留時間與最佳到訪時段
+4. 雨天備案（若為戶外景點）
+5. 周邊 3 個高評價平價美食推薦（含 Google 評分）
+請用繁體中文回答，標注查詢日期。`;
       const res = await generateGeminiContent(prompt, null, true);
       setSpotAnalysis((p) => ({ ...p, [s.id]: res }));
     } catch (e) {
@@ -1623,6 +1624,110 @@ const GuardTab = ({
   );
 };
 
+// --- WishlistTab (願望清單) ---
+const WishlistTab = ({ aiLoading, setAiLoading, openKeyModal }) => {
+  const Icons = window.Icons;
+  const wishlist = window.WISHLIST_DATA || [];
+  const [spotInfo, setSpotInfo] = useState({});
+
+  const fetchSpotInfo = async (spot) => {
+    const key = `${spot.lat}-${spot.lon}`;
+    setAiLoading(true);
+    setSpotInfo((p) => ({ ...p, [key]: "查詢中..." }));
+    try {
+      const prompt = `請查詢景點「${spot.name}」的【最新即時資訊】：
+1. 景點簡介（50字內）
+2. 目前營業狀態（是否營業中、今日營業時間）
+3. Google Maps 最新評分
+4. 門票價格（成人/兒童）
+5. 建議停留時間
+6. 最適合的到訪時段
+7. 距離我目前行程最近的景點約幾分鐘車程
+請用繁體中文簡潔回答。`;
+      const res = await generateGeminiContent(prompt, null, true);
+      setSpotInfo((p) => ({ ...p, [key]: res }));
+    } catch (e) {
+      setSpotInfo((p) => ({ ...p, [key]: "查詢失敗，請確認 API Key。" }));
+      if (e.message.includes("NO_API_KEY")) openKeyModal(true);
+    }
+    setAiLoading(false);
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-700 pb-20">
+      <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+        <Icons.Heart className="text-[#E4C2C1]" /> 願望清單
+      </h1>
+      <p className="text-sm text-gray-400 -mt-4">
+        行程中臨時想去？點擊查詢即時資訊，一鍵導航出發。
+      </p>
+      {wishlist.length === 0 && (
+        <div className="text-center py-16 text-gray-300">
+          <Icons.Compass size={48} className="mx-auto mb-4 opacity-50" />
+          <p className="text-sm">KMZ 中沒有 pocket_list 圖層</p>
+        </div>
+      )}
+      {wishlist.map((spot, idx) => {
+        const key = `${spot.lat}-${spot.lon}`;
+        const info = spotInfo[key];
+        const gmapLink = `https://www.google.com/maps/search/?api=1&query=${spot.lat},${spot.lon}`;
+        const navLink = `https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lon}&travelmode=driving`;
+        return (
+          <div
+            key={idx}
+            className="glass-panel p-6 rounded-3xl bg-white border-gray-100 shadow-lg"
+          >
+            <div className="flex items-start gap-4 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-[#E4C2C1]/20 flex items-center justify-center text-[#E4C2C1] shrink-0">
+                <Icons.Star size={24} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-black text-gray-800 mb-1">{spot.name}</h3>
+                <p className="text-xs text-gray-400">{spot.desc}</p>
+              </div>
+            </div>
+
+            {info && info !== "查詢中..." && (
+              <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-600 leading-relaxed">
+                <MarkdownRenderer content={info} />
+              </div>
+            )}
+            {info === "查詢中..." && (
+              <div className="mb-4 p-4 bg-gray-50 rounded-xl flex items-center gap-2 text-sm text-gray-400">
+                <Icons.Loader2 size={14} className="animate-spin" /> AI 查詢中...
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => fetchSpotInfo(spot)}
+                disabled={aiLoading}
+                className="flex-1 bg-[#E4C2C1] text-white py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:brightness-105 shadow-md transition-all"
+              >
+                <Icons.Sparkles size={14} /> AI 即時資訊
+              </button>
+              <a
+                href={gmapLink}
+                target="_blank"
+                className="flex-1 bg-gray-50 text-gray-500 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-gray-100 transition-colors border border-gray-100"
+              >
+                <Icons.MapPin size={14} className="text-[#A9BFA8]" /> 地圖
+              </a>
+              <a
+                href={navLink}
+                target="_blank"
+                className="bg-gray-800 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-gray-700 transition-colors shadow-md"
+              >
+                <Icons.Navigation size={14} /> 導航
+              </a>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // ==========================================
 // 4. 主應用程式 (App) - 整合所有邏輯
 // ==========================================
@@ -1664,7 +1769,7 @@ function App() {
 
   // --- States (AI & Feature) ---
   const [selectedCurrency, setSelectedCurrency] = useState(() => {
-    const saved = localStorage.getItem("2026_currency") || "JPY";
+    const saved = localStorage.getItem("2026_currency") || "TWD";
     return (
       window.CURRENCY_OPTIONS.find((c) => c.code === saved) ||
       window.CURRENCY_OPTIONS[1]
@@ -1727,6 +1832,36 @@ function App() {
   }, [currentThemeIndex]);
   useEffect(() => {
     if (window.emailjs) window.emailjs.init("mYOFMMnqLdDxR0wjj");
+  }, []);
+
+  // --- 行程切換偵測：config 換了就提示清除舊資料 ---
+  useEffect(() => {
+    const currentTripId = window.TRIP_ID;
+    if (!currentTripId) return;
+    const savedTripId = localStorage.getItem("active_trip_id");
+    if (savedTripId && savedTripId !== currentTripId) {
+      const oldName = savedTripId;
+      const newName = currentTripId;
+      if (
+        confirm(
+          `偵測到行程已更換！\n\n舊行程：${oldName}\n新行程：${newName}\n\n是否清除舊行程的記帳與設定資料？\n（API Key 會保留）`
+        )
+      ) {
+        const apiKey = localStorage.getItem("gemini_api_key");
+        const email = localStorage.getItem("user_email");
+        // 清除所有 trip-related localStorage
+        const keysToKeep = ["gemini_api_key", "user_email", "active_trip_id"];
+        Object.keys(localStorage).forEach((key) => {
+          if (!keysToKeep.includes(key)) localStorage.removeItem(key);
+        });
+        if (apiKey) localStorage.setItem("gemini_api_key", apiKey);
+        if (email) localStorage.setItem("user_email", email);
+        localStorage.setItem("active_trip_id", currentTripId);
+        window.location.reload();
+        return;
+      }
+    }
+    localStorage.setItem("active_trip_id", currentTripId);
   }, []);
 
   // --- Currency Fetch ---
@@ -1828,14 +1963,13 @@ function App() {
       d.spots.forEach((spot) => {
         const spotExpenses = expenses[spot.id] || [];
         spotExpenses.forEach((e) => (dayTotal += e.amount || 0));
-        if (spot.ticket) {
+        const currentTicket = ticketOverrides[spot.id] || spot.ticket;
+        if (currentTicket && (currentTicket.adult > 0 || currentTicket.child > 0)) {
           const counts = spotTicketCounts[spot.id] || { adult: 2, child: 2 };
-          // USE OVERRIDE IF EXISTS
-          const currentTicket = ticketOverrides[spot.id] || spot.ticket;
-          if (currentTicket) {
-            dayTotal +=
-              currentTicket.adult * counts.adult +
-              currentTicket.child * counts.child;
+          if (isHotel(spot.name)) {
+            dayTotal += currentTicket.adult * counts.adult; // 住宿：房價×房數
+          } else {
+            dayTotal += currentTicket.adult * counts.adult + currentTicket.child * counts.child;
           }
         }
       });
@@ -1962,7 +2096,7 @@ function App() {
     setIsSendingEmail(true);
     localStorage.setItem("user_email", emailInput);
     try {
-      const htmlMessage = `<html><body><h2>旅遊報表</h2><p>總花費: ¥${stats.totalJpy}</p></body></html>`;
+      const htmlMessage = `<html><body><h2>旅遊報表</h2><p>總花費: NT$${stats.totalJpy}</p></body></html>`;
       await window.emailjs.send("service_5yh7x6g", "template_dlbyml8", {
         email: emailInput,
         to_email: emailInput,
@@ -2041,80 +2175,94 @@ function App() {
     setQuotaStatus({ type: "normal", text: "完成" });
   };
 
-  // --- NEW: Handle Auto Estimate Tickets (Exclude Hotels & Clean Data) ---
-  const handleEstimateTickets = async () => {
+  // --- Handle Auto Estimate ALL Costs (Tickets + Hotels) ---
+  const handleEstimateTickets = async (silent = false) => {
     if (isTicketEstimating) return;
     const apiKey = localStorage.getItem("gemini_api_key");
     if (!apiKey) {
-      setIsKeyModalOpen(true);
+      if (!silent) setIsKeyModalOpen(true);
       return;
     }
 
     setIsTicketEstimating(true);
 
     const spotList = [];
+    const hotelList = [];
 
-    // [FIX] 執行 AI 估算前，先清洗掉 ticketOverrides 中所有是飯店的 key
-    const newOverrides = { ...ticketOverrides };
-    let hasCleared = false;
     tripData.forEach((day) => {
       day.spots.forEach((spot) => {
-        if (isHotel(spot.name) && newOverrides[spot.id]) {
-          delete newOverrides[spot.id];
-          hasCleared = true;
-        }
-      });
-    });
-    if (hasCleared) setTicketOverrides(newOverrides); // 立即更新狀態
-
-    // 準備發送給 AI 的清單 (已排除飯店)
-    tripData.forEach((day) => {
-      day.spots.forEach((spot) => {
-        if (!isHotel(spot.name)) {
+        if (isHotel(spot.name)) {
+          hotelList.push({ id: spot.id, name: spot.name });
+        } else {
           spotList.push({ id: spot.id, name: spot.name });
         }
       });
     });
 
-    if (spotList.length === 0) {
-      alert("行程中沒有需要估算門票的景點 (已排除飯店)。");
-      setIsTicketEstimating(false);
-      return;
-    }
-
     try {
-      const prompt = `
-            請分析以下日本/台灣旅遊景點，判斷是否通常需要門票。
-            如果是，請預估成人與兒童的票價(日幣 JPY)。
-            如果該景點通常免費(如公園、街道、車站)，請不要回傳該項目。
-            
-            景點列表:
-            ${JSON.stringify(spotList)}
-            
-            請回傳純 JSON 格式 (不要 Markdown):
-            {
-                "spot_id": { "adult": 2000, "child": 1000 },
-                ...
-            }
-          `;
+      // 1. 估算景點門票
+      if (spotList.length > 0) {
+        const prompt = `請用 Google Search 查詢以下台灣旅遊景點的【最新門票價格】。
+如果該景點需要門票，請回傳成人票與兒童票(6-12歲)的價格(台幣)。
+如果該景點免費(如公園、街道、車站、購物店)，請不要回傳該項目。
+請務必查詢最新資訊，不要猜測。
 
-      const result = await generateGeminiContent(prompt);
-      const jsonMatch = result.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const estimates = JSON.parse(jsonMatch[0]);
-        // Merge with cleaned overrides
-        setTicketOverrides((prev) => ({ ...prev, ...estimates }));
-        alert("票價估算完成！已自動更新行程表 (已排除住宿)。");
-      } else {
-        throw new Error("AI 回傳格式無法解析");
+景點列表:
+${JSON.stringify(spotList)}
+
+請回傳純 JSON 格式 (不要 Markdown):
+{
+  "spot_id": { "adult": 200, "child": 100 },
+  ...
+}`;
+        const result = await generateGeminiContent(prompt, null, true);
+        const jsonMatch = result.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const estimates = JSON.parse(jsonMatch[0]);
+          setTicketOverrides((prev) => ({ ...prev, ...estimates }));
+        }
       }
+
+      // 2. 估算住宿費用
+      if (hotelList.length > 0) {
+        const hotelPrompt = `請用 Google Search 查詢以下台灣飯店/民宿的【最新每晚房價】。
+請查詢標準雙人房或家庭房的平均價格(台幣)。
+回傳 adult 欄位填入每晚房價，child 填 0。
+
+飯店列表:
+${JSON.stringify(hotelList)}
+
+請回傳純 JSON 格式 (不要 Markdown):
+{
+  "spot_id": { "adult": 3500, "child": 0 },
+  ...
+}`;
+        const hotelResult = await generateGeminiContent(hotelPrompt, null, true);
+        const hotelMatch = hotelResult.match(/\{[\s\S]*\}/);
+        if (hotelMatch) {
+          const hotelEstimates = JSON.parse(hotelMatch[0]);
+          setTicketOverrides((prev) => ({ ...prev, ...hotelEstimates }));
+        }
+      }
+
+      if (!silent) alert("費用估算完成！門票與住宿已自動更新。");
     } catch (e) {
       console.error(e);
-      alert("估算失敗，請稍後再試。");
+      if (!silent) alert("估算失敗，請稍後再試。");
     } finally {
       setIsTicketEstimating(false);
     }
   };
+
+  // --- 首次載入自動估價 ---
+  useEffect(() => {
+    const hasEstimates = Object.keys(ticketOverrides).length > 0;
+    const apiKey = localStorage.getItem("gemini_api_key");
+    if (!hasEstimates && apiKey && tripData.length > 0) {
+      const timer = setTimeout(() => handleEstimateTickets(true), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [tripData.length]);
 
   const handleOpenMap = () => {
     let points = [];
@@ -2161,7 +2309,7 @@ function App() {
               />
             </div>
             <h1 className="font-black text-lg text-gray-800">
-              {window.RAW_KML_DATA[0].title}
+              {window.APP_TITLE || "親子遊"}
             </h1>
           </div>
           <div className="flex items-center gap-2">
@@ -2227,6 +2375,7 @@ function App() {
             STAY_OPTIONS={window.STAY_OPTIONS}
             ticketOverrides={ticketOverrides}
             handleManualTicketEdit={handleManualTicketEdit}
+            isTicketEstimating={isTicketEstimating}
           />
         )}
         {activeTab === "info" && <InfoTab />}
@@ -2251,6 +2400,13 @@ function App() {
             openKeyModal={setIsKeyModalOpen}
             aiLoading={aiLoading}
             setAiLoading={setAiLoading}
+          />
+        )}
+        {activeTab === "wishlist" && (
+          <WishlistTab
+            aiLoading={aiLoading}
+            setAiLoading={setAiLoading}
+            openKeyModal={setIsKeyModalOpen}
           />
         )}
       </main>
@@ -2286,6 +2442,14 @@ function App() {
           }`}
         >
           <Icons.Shield size={22} /> 防雷
+        </button>
+        <button
+          onClick={() => setActiveTab("wishlist")}
+          className={`flex flex-col items-center gap-1 ${
+            activeTab === "wishlist" ? "text-[#E4C2C1]" : "hover:text-gray-600"
+          }`}
+        >
+          <Icons.Heart size={22} /> 願望
         </button>
       </div>
       <ApiKeyModal
